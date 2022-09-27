@@ -69,6 +69,32 @@ static void on_closest_enemy_pos(flecs::world &ecs, flecs::entity entity, Callab
   });
 }
 
+template<typename Callable>
+static void on_closest_ally_pos(flecs::world &ecs, flecs::entity entity, Callable c)
+{
+  static auto enemiesQuery = ecs.query<const Position, const Team>();
+  entity.set([&](const Position &pos, const Team &t, Action &a)
+  {
+    flecs::entity closestAlly;
+    float closestDist = FLT_MAX;
+    Position closestPos;
+    enemiesQuery.each([&](flecs::entity ally, const Position &apos, const Team &at)
+    {
+      if (t.team != at.team)
+        return;
+      float curDist = dist(apos, pos);
+      if (curDist < closestDist && curDist > FLT_EPSILON)
+      {
+        closestDist = curDist;
+        closestPos = apos;
+        closestAlly = ally;
+      }
+    });
+    if (ecs.is_valid(closestAlly))
+      c(a, pos, closestPos);
+  });
+}
+
 class MoveToEnemyState : public State
 {
 public:
@@ -82,6 +108,34 @@ public:
     });
   }
 };
+
+class MoveToAllyState : public State
+{
+public:
+  void enter() const override {}
+  void exit() const override {}
+  void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
+  {
+    on_closest_ally_pos(ecs, entity, [&](Action &a, const Position &pos, const Position &ally_pos)
+    {
+      a.action = move_towards(pos, ally_pos);
+    });
+  }
+};
+
+// class MoveToPlayerState : public State
+// {
+// public:
+//   void enter() const override {}
+//   void exit() const override {}
+//   void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
+//   {
+//     on_closest_ally_pos(ecs, entity, [&](Action &a, const Position &pos, const Position &ally_pos)
+//     {
+//       a.action = move_towards(pos, ally_pos);
+//     });
+//   }
+// };
 
 class FleeFromEnemyState : public State
 {
@@ -128,6 +182,68 @@ public:
   void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override {}
 };
 
+class HealState : public State
+{
+  float healPower;
+public:
+  HealState(float power) : healPower(power) {} 
+  void enter() const override {}
+  void exit() const override {}
+  void act(float /*dt*/, flecs::world &ecs, flecs::entity entity) const override
+  {
+    entity.remove<Targets>();
+    static auto globalTime = ecs.query<Time>();
+    float cur_time = 0.f;
+    globalTime.each([&](flecs::entity /*e*/, Time &gtime){
+      cur_time = gtime.time;
+    });
+    
+    entity.set([&](Action &a, Ability &ability)
+    {
+      a.action = EA_HEAL;
+      ability.power = healPower;
+      ability.lastAbilityUsage = cur_time;
+    });
+    entity.add<Targets>(entity);
+  }
+};
+
+class AllyHealState : public State
+{
+  float healPower;
+  float healDist;
+public:
+  AllyHealState(float power, float dist) : healPower(power), healDist(dist) {} 
+  void enter() const override {}
+  void exit() const override {}
+  void act(float /*dt*/, flecs::world &ecs, flecs::entity entity) const override
+  {
+    entity.remove<Targets>();
+    static auto globalTime = ecs.query<Time>();
+    float cur_time = 0.f;
+    globalTime.each([&](flecs::entity /*e*/, Time &gtime){
+      cur_time = gtime.time;
+    });
+    
+    static auto alliesQuery = ecs.query<const Position, const Team>();
+    entity.set([&](const Position &pos, const Team &t, Action &a, Ability &ability)
+    {
+      alliesQuery.each([&](flecs::entity ally, const Position &apos, const Team &at)
+      {
+        if (t.team != at.team)
+          return;
+        float curDist = dist(apos, pos);
+        if (curDist <= healDist && curDist > FLT_EPSILON) {
+          a.action = EA_HEAL;
+          ability.power = healPower;
+          ability.lastAbilityUsage = cur_time;
+          entity.add<Targets>(ally);
+        }
+      });
+    });
+  }
+};
+
 class EnemyAvailableTransition : public StateTransition
 {
   float triggerDist;
@@ -139,7 +255,7 @@ public:
     bool enemiesFound = false;
     entity.get([&](const Position &pos, const Team &t)
     {
-      enemiesQuery.each([&](flecs::entity enemy, const Position &epos, const Team &et)
+      enemiesQuery.each([&](flecs::entity /*enemy*/, const Position &epos, const Team &et)
       {
         if (t.team == et.team)
           return;
@@ -148,6 +264,29 @@ public:
       });
     });
     return enemiesFound;
+  }
+};
+
+class AllyAvailableTransition : public StateTransition
+{
+  float triggerDist;
+public:
+  AllyAvailableTransition(float in_dist) : triggerDist(in_dist) {}
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    static auto alliesQuery = ecs.query<const Position, const Team>();
+    bool alliesFound = false;
+    entity.get([&](const Position &pos, const Team &t)
+    {
+      alliesQuery.each([&](flecs::entity /*ally*/, const Position &apos, const Team &at)
+      {
+        if (t.team != at.team)
+          return;
+        float curDist = dist(apos, pos);
+        alliesFound |= (curDist <= triggerDist && curDist > FLT_EPSILON);
+      });
+    });
+    return alliesFound;
   }
 };
 
@@ -164,6 +303,53 @@ public:
       hitpointsThresholdReached |= hp.hitpoints < threshold;
     });
     return hitpointsThresholdReached;
+  }
+};
+
+class AllyHitpointsLessThanTransition : public StateTransition
+{
+  float threshold;
+  float triggerDist;
+public:
+  AllyHitpointsLessThanTransition(float in_thres, float in_dist) : threshold(in_thres), triggerDist(in_dist) {}
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    bool hitpointsThresholdReached = false;
+    static auto alliesQuery = ecs.query<const Position, const Team, const Hitpoints>();
+    entity.get([&](const Position &pos, const Team &t)
+    {
+      alliesQuery.each([&](flecs::entity /*ally*/, const Position &apos, const Team &at, const Hitpoints &ahp)
+      {
+        if (t.team != at.team)
+          return;
+        float curDist = dist(apos, pos);
+        hitpointsThresholdReached |= (curDist <= triggerDist && curDist > FLT_EPSILON && ahp.hitpoints < threshold);
+      });
+    });
+    return hitpointsThresholdReached;
+  }
+};
+
+class AbilityAvailableTransition : public StateTransition
+{
+  float cooldown;
+public:
+  AbilityAvailableTransition(float cd) : cooldown(cd) {}
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    bool abilityAvailable = false;
+    
+    static auto globalTime = ecs.query<Time>();
+    float cur_time = 0.f;
+    globalTime.each([&](flecs::entity /*e*/, Time &gtime){
+      cur_time = gtime.time;
+    });
+
+    entity.get([&](const Ability &ability)
+    {
+      abilityAvailable |= (ability.lastAbilityUsage + cooldown) < cur_time;
+    });
+    return abilityAvailable;
   }
 };
 
@@ -217,6 +403,14 @@ State *create_move_to_enemy_state()
 {
   return new MoveToEnemyState();
 }
+State *create_move_to_ally_state()
+{
+  return new MoveToAllyState();
+}
+// State *create_move_to_player_state()
+// {
+//   return new MoveToPlayerState();
+// }
 
 State *create_flee_from_enemy_state()
 {
@@ -227,6 +421,16 @@ State *create_flee_from_enemy_state()
 State *create_patrol_state(float patrol_dist)
 {
   return new PatrolState(patrol_dist);
+}
+
+State *create_heal_state(float power)
+{
+  return new HealState(power);
+}
+
+State *create_ally_heal_state(float power, float dist)
+{
+  return new AllyHealState(power, dist);
 }
 
 State *create_nop_state()
@@ -240,6 +444,11 @@ StateTransition *create_enemy_available_transition(float dist)
   return new EnemyAvailableTransition(dist);
 }
 
+StateTransition *create_ally_available_transition(float dist)
+{
+  return new AllyAvailableTransition(dist);
+}
+
 StateTransition *create_enemy_reachable_transition()
 {
   return new EnemyReachableTransition();
@@ -248,6 +457,16 @@ StateTransition *create_enemy_reachable_transition()
 StateTransition *create_hitpoints_less_than_transition(float thres)
 {
   return new HitpointsLessThanTransition(thres);
+}
+
+StateTransition *create_ally_hitpoints_less_than_transition(float thres, float dist)
+{
+  return new AllyHitpointsLessThanTransition(thres, dist);
+}
+
+StateTransition *create_ability_available_transition(float cd)
+{
+  return new AbilityAvailableTransition(cd);
 }
 
 StateTransition *create_negate_transition(StateTransition *in)

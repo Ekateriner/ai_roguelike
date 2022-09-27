@@ -60,7 +60,8 @@ enum Actions
   EA_MOVE_UP,
   EA_MOVE_END,
   EA_ATTACK = EA_MOVE_END,
-  EA_NUM
+  EA_HEAL,
+  EA_NUM,
 };
 
 struct Action
@@ -114,3 +115,15 @@ struct Team
   int team = 0;
 };
 
+struct Time
+{
+  float time = 0.f;
+};
+
+struct Ability
+{
+  float power;
+  float lastAbilityUsage;
+};
+
+struct Targets {};
