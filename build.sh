@@ -8,7 +8,7 @@ fi
 
 cd build
 
-num_procs=$(nproc)
+num_procs="$(($(nproc)-2))"
 echo "building using ${num_procs} workers"
 if make -j${num_procs}; then
 echo "build ready";

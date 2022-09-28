@@ -61,6 +61,12 @@ enum Actions
   EA_MOVE_END,
   EA_ATTACK = EA_MOVE_END,
   EA_HEAL,
+  EA_SLEEP,
+  EA_CRAFT,
+  EA_SELL,
+  EA_BUY,
+  EA_EAT,
+  EA_TALK,
   EA_NUM,
 };
 
@@ -127,3 +133,16 @@ struct Ability
 };
 
 struct Targets {};
+
+enum ActivityState{
+  A_START,
+  A_PROCESS,
+  A_END,
+  A_NOP,
+};
+
+struct Activity
+{
+  float last_time;
+  ActivityState state;
+};

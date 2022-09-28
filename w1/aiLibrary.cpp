@@ -29,6 +29,8 @@ static int move_towards(const T &from, const U &to)
 {
   int deltaX = to.x - from.x;
   int deltaY = to.y - from.y;
+  if (deltaX == 0 && deltaY == 0)
+    return EA_NOP;
   if (abs(deltaX) > abs(deltaY))
     return deltaX > 0 ? EA_MOVE_RIGHT : EA_MOVE_LEFT;
   return deltaY > 0 ? EA_MOVE_UP : EA_MOVE_DOWN;
@@ -244,6 +246,58 @@ public:
   }
 };
 
+class MoveToState : public State
+{
+  Position target_pos;
+public:
+  MoveToState(Position tgt) : target_pos(tgt) {}
+  void enter() const override {}
+  void exit() const override {}
+  void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
+  {
+    entity.set([&](const Position &pos, Action &a, Activity& activ)
+    {
+      a.action = move_towards(pos, target_pos);
+      activ.state = A_NOP;
+    });
+  }
+};
+
+class SomeActivityState : public State
+{
+  float duration;
+  Actions action;
+public:
+  SomeActivityState(float dur, Actions a) : duration(dur), action(a) {}
+  void enter() const override {}
+  void exit() const override {}
+  void act(float dt, flecs::world &ecs, flecs::entity entity) const override
+  {
+    entity.set([&](const Position &pos, Action &a, Activity &activ)
+    {
+      if (activ.state == A_NOP) {
+        activ.state = A_START;
+      }
+      else if (activ.state == A_START) {
+        activ.last_time = duration;
+        a.action = action;
+        activ.state = A_PROCESS;
+      }
+      else if (activ.state == A_PROCESS) {
+        activ.last_time -= dt;
+        a.action = action;
+        if (activ.last_time <= 0.0) {
+          activ.state = A_END;
+          a.action = EA_NOP;
+        }
+      }
+    });
+  }
+};
+
+//---------------------------------------transitions---------------------------------------
+
+
 class EnemyAvailableTransition : public StateTransition
 {
   float triggerDist;
@@ -353,6 +407,53 @@ public:
   }
 };
 
+class NearTransition : public StateTransition
+{
+  Position position;
+  float triggerDist;
+public:
+  NearTransition(Position pos, float dist) : position(pos), triggerDist(dist) {}
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    static auto enemiesQuery = ecs.query<const Position, const Team>();
+    bool is_near = false;
+    entity.get([&](const Position &pos)
+    {
+      float curDist = dist(position, pos);
+      is_near |= curDist <= triggerDist;
+    });
+    return is_near;
+  }
+};
+
+class ActivityEndTransition : public StateTransition
+{
+public:
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    bool is_end = false;
+    entity.get([&](const Activity &activ)
+    {
+      is_end |= activ.state == A_END;
+    });
+    return is_end;
+  }
+};
+
+class NeedTalkTransition : public StateTransition
+{
+public:
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    bool is_talk = false;
+    entity.get([&](const Action &a, const Activity &activ)
+    {
+      is_talk |= activ.state == A_PROCESS && (a.action == EA_BUY || a.action == EA_SELL);
+    });
+    return is_talk;
+  }
+};
+
 class EnemyReachableTransition : public StateTransition
 {
 public:
@@ -375,6 +476,28 @@ public:
   }
 };
 
+class TimeTransition : public StateTransition
+{
+  float lhs;
+  float rhs;
+public:
+  TimeTransition(float in_lhs, float in_rhs) : lhs(in_lhs), rhs(in_rhs) {}
+  
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    static auto globalTime = ecs.query<Time>();
+    float cur_time = 0.f;
+    globalTime.each([&](flecs::entity /*e*/, Time &gtime){
+      cur_time = gtime.time;
+    });
+    cur_time = cur_time - 24.0f * floor(cur_time / 72.0f);
+
+    return (cur_time >= lhs && cur_time <= rhs) || \
+           (lhs > rhs && cur_time >= lhs && cur_time <= rhs + 72.0f) || \
+           (lhs > rhs && cur_time >= lhs - 72.0f && cur_time <= rhs);
+  }
+};
+
 class AndTransition : public StateTransition
 {
   const StateTransition *lhs; // we own it
@@ -390,6 +513,24 @@ public:
   bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
   {
     return lhs->isAvailable(ecs, entity) && rhs->isAvailable(ecs, entity);
+  }
+};
+
+class OrTransition : public StateTransition
+{
+  const StateTransition *lhs; // we own it
+  const StateTransition *rhs; // we own it
+public:
+  OrTransition(const StateTransition *in_lhs, const StateTransition *in_rhs) : lhs(in_lhs), rhs(in_rhs) {}
+  ~OrTransition() override
+  {
+    delete lhs;
+    delete rhs;
+  }
+
+  bool isAvailable(flecs::world &ecs, flecs::entity entity) const override
+  {
+    return lhs->isAvailable(ecs, entity) || rhs->isAvailable(ecs, entity);
   }
 };
 
@@ -438,6 +579,16 @@ State *create_nop_state()
   return new NopState();
 }
 
+State *create_move_to_state(Position pos)
+{
+  return new MoveToState(pos);
+}
+
+State *create_activity_state(float dur, Actions a)
+{
+  return new SomeActivityState(dur, a);
+}
+
 // transitions
 StateTransition *create_enemy_available_transition(float dist)
 {
@@ -469,6 +620,24 @@ StateTransition *create_ability_available_transition(float cd)
   return new AbilityAvailableTransition(cd);
 }
 
+StateTransition *create_near_transition(Position pos, float dist)
+{
+  return new NearTransition(pos, dist);
+}
+
+StateTransition *create_activity_end_transition()
+{
+  return new ActivityEndTransition();
+}
+
+StateTransition *create_time_transition(float lhs, float rhs) {
+  return new TimeTransition(lhs, rhs);
+}
+
+StateTransition *create_need_talk_transition() {
+  return new NeedTalkTransition();
+}
+
 StateTransition *create_negate_transition(StateTransition *in)
 {
   return new NegateTransition(in);
@@ -477,4 +646,7 @@ StateTransition *create_and_transition(StateTransition *lhs, StateTransition *rh
 {
   return new AndTransition(lhs, rhs);
 }
-
+StateTransition *create_or_transition(StateTransition *lhs, StateTransition *rhs)
+{
+  return new OrTransition(lhs, rhs);
+}
