@@ -31,5 +31,30 @@
 *.out
 *.app
 
+# VS Code (linux)
 build/*
 .vscode
+
+# Visual studio
+*.ipch
+*.suo
+*.VC.*
+*.tlog
+*.user
+*.pdb
+*.log
+*.idb
+*.recipe
+*.exp
+*.ilk
+*.vcxproj.*
+*.iobj
+*.ipdb
+
+# Cmake
+Makefile
+CMakeFiles
+CMakeCache.txt
+*.cmake
+compile_commands.json
+
