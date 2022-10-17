@@ -193,7 +193,9 @@ public:
   void exit() const override {}
   void act(float /*dt*/, flecs::world &ecs, flecs::entity entity) const override
   {
-    entity.remove<Targets>();
+    entity.each<Targets>([&](flecs::entity tar) {
+      entity.remove<Targets>(tar);
+    });
     static auto globalTime = ecs.query<Time>();
     float cur_time = 0.f;
     globalTime.each([&](flecs::entity /*e*/, Time &gtime){

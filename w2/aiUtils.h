@@ -58,4 +58,3 @@ inline size_t reg_entity_blackboard_var(flecs::entity entity, const char *bb_nam
   });
   return res;
 }
-

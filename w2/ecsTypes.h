@@ -105,6 +105,10 @@ struct Symbol
 
 struct IsPlayer {};
 
+struct CouldTake {};
+
+struct WayPoint {};
+
 struct Team
 {
   int team = 0;

@@ -4,6 +4,7 @@
 #include "math.h"
 #include "raylib.h"
 #include "blackboard.h"
+#include <iostream>
 
 struct CompoundNode : public BehNode
 {
@@ -48,6 +49,75 @@ struct Selector : public CompoundNode
         return res;
     }
     return BEH_FAIL;
+  }
+};
+
+struct NotNode : public BehNode
+{
+  BehNode* node;
+
+  NotNode(BehNode *_node) : node(_node) {}
+
+  virtual ~NotNode()
+  {
+    delete node;
+  }
+
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = node->update(ecs, entity, bb);
+    if (res == BEH_FAIL)
+      return BEH_SUCCESS;
+    else if (res == BEH_SUCCESS) 
+      return BEH_FAIL;
+    throw "Wrong node result";
+  }
+};
+
+struct Parallel : public CompoundNode
+{
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    for (BehNode *node : nodes)
+    {
+      BehResult res = node->update(ecs, entity, bb);
+      if (res != BEH_RUNNING)
+        return res;    
+    }
+    return BEH_RUNNING;
+  }
+};
+
+struct OrNode : public CompoundNode
+{
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult total_res = BEH_FAIL;
+    for (BehNode *node : nodes)
+    {
+      BehResult res = node->update(ecs, entity, bb);
+      if (res == BEH_SUCCESS)
+        return BEH_SUCCESS;
+      else if (res == BEH_RUNNING)
+        throw "Wrong node result";
+    }
+    return BEH_FAIL;
+  }
+};
+
+struct AndNode : public CompoundNode
+{
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    for (BehNode *node : nodes)
+    {
+      BehResult res = node->update(ecs, entity, bb);
+      if (res == BEH_FAIL)
+        return BEH_FAIL;
+      else if (res == BEH_RUNNING)
+        throw "Wrong node result";
+    }
+    return BEH_SUCCESS;
   }
 };
 
@@ -197,6 +267,53 @@ struct Patrol : public BehNode
   }
 };
 
+struct RouteGo : public BehNode
+{
+  RouteGo() {}
+
+  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = BEH_RUNNING;
+    entity.set([&](Action &a, const Position &pos)
+    {
+      entity.each<WayPoint>([&](flecs::entity point) 
+      {
+        point.get([&](const Position &target_pos)
+        {
+          if (pos != target_pos)
+          {
+            a.action = move_towards(pos, target_pos);
+            res = BEH_RUNNING;
+          }
+          else
+            res = BEH_SUCCESS;
+        });
+      });
+    });
+    return res;
+  }
+};
+
+struct GetNextPoint : public BehNode
+{
+  GetNextPoint() {}
+
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = BEH_FAIL;
+    flecs::entity next;
+    entity.each<WayPoint>([&](flecs::entity cur_point) 
+    {
+      cur_point.each<WayPoint>([&](flecs::entity next_point) 
+      {
+        entity.remove<WayPoint>(cur_point);
+        entity.add<WayPoint>(next_point);
+        res = BEH_SUCCESS;
+      });
+    });
+    return res;
+  }
+};
 
 BehNode *sequence(const std::vector<BehNode*> &nodes)
 {
@@ -212,6 +329,35 @@ BehNode *selector(const std::vector<BehNode*> &nodes)
   for (BehNode *node : nodes)
     sel->pushNode(node);
   return sel;
+}
+
+BehNode *parallel(const std::vector<BehNode*> &nodes)
+{
+  Parallel *par = new Parallel;
+  for (BehNode *node : nodes)
+    par->pushNode(node);
+  return par;
+}
+
+BehNode *and_node(const std::vector<BehNode*> &nodes)
+{
+  AndNode *an = new AndNode;
+  for (BehNode *node : nodes)
+    an->pushNode(node);
+  return an;
+}
+
+BehNode *or_node(const std::vector<BehNode*> &nodes)
+{
+  OrNode *on = new OrNode;
+  for (BehNode *node : nodes)
+    on->pushNode(node);
+  return on;
+}
+
+BehNode *not_node(BehNode* node) 
+{
+  return new NotNode(node);
 }
 
 BehNode *move_to_entity(flecs::entity entity, const char *bb_name)
@@ -239,3 +385,12 @@ BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name)
   return new Patrol(entity, patrol_dist, bb_name);
 }
 
+BehNode *get_next_point() 
+{
+  return new GetNextPoint();
+}
+
+BehNode *route_go() 
+{
+  return new RouteGo();
+}
