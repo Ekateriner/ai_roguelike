@@ -23,6 +23,7 @@ StateTransition *create_and_transition(StateTransition *lhs, StateTransition *rh
 BehNode *sequence(const std::vector<BehNode*> &nodes);
 BehNode *selector(const std::vector<BehNode*> &nodes);
 BehNode *parallel(const std::vector<BehNode*> &nodes);
+BehNode *with_reaction(BehNode* node, const std::vector<std::pair<Event, BehNode*>> &reactions);
 
 BehNode *and_node(const std::vector<BehNode*> &nodes);
 BehNode *or_node(const std::vector<BehNode*> &nodes);
@@ -35,6 +36,7 @@ BehNode *flee(flecs::entity entity, const char *bb_name);
 BehNode *patrol(flecs::entity entity, float patrol_dist, const char *bb_name);
 BehNode *get_next_point();
 BehNode *route_go();
+BehNode *ask_help(flecs::entity entity, const char *bb_name, const char *target_bb_name);
 
 template<class T>
 struct FindClosest : public BehNode
@@ -69,6 +71,8 @@ struct FindClosest : public BehNode
     });
     return res;
   }
+
+  void react(Event coming_evt) override {}
 };
 
 template<class T>

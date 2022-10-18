@@ -67,6 +67,23 @@ static void create_guard_beh(flecs::entity e, flecs::entity& start_point)
   e.set(BehaviourTree{root});
 }
 
+static void create_mosqito_beh(flecs::entity e, int swarm_idx = 0)
+{
+  e.set(Swarm{swarm_idx}).set(Blackboard{});
+  BehNode *root =
+    selector({
+      sequence({
+        find_enemy(e, 5.f, "attack_enemy"),
+        ask_help(e, "attack_enemy", "swarm_enemy"),
+        move_to_entity(e, "attack_enemy")
+      }),
+      with_reaction(patrol(e, 2.f, "patrol_pos"),
+        {{HelpEvent, move_to_entity(e, "swarm_enemy")}}
+      )
+    });
+  e.set(BehaviourTree{root});
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src)
 {
   flecs::entity textureSrc = ecs.entity(texture_src);
@@ -191,6 +208,8 @@ void init_roguelike(flecs::world &ecs)
     .set(Texture2D{LoadTexture("w2/assets/monk.png")});
   ecs.entity("guard_tex")
     .set(Texture2D{LoadTexture("w2/assets/guard.png")});
+  ecs.entity("mosqito_tex")
+    .set(Texture2D{LoadTexture("w2/assets/mosqito.png")});
 
   ecs.observer<Texture2D>()
     .event(flecs::OnRemove)
@@ -208,6 +227,12 @@ void init_roguelike(flecs::world &ecs)
 
   auto start_point = create_route(ecs, {{3, 3}, {-2, 12}, {4, -3}});
   create_guard_beh(create_monster(ecs, -10, 5, Color{255, 255, 255, 255}, "guard_tex"), start_point);
+
+  //swarm
+  create_mosqito_beh(create_monster(ecs, 3, 3, Color{0xff, 0xff, 0xff, 0xff}, "mosqito_tex"));
+  create_mosqito_beh(create_monster(ecs, 7, 7, Color{0xff, 0xff, 0xff, 0xff}, "mosqito_tex"));
+  create_mosqito_beh(create_monster(ecs, -3, -3, Color{0xff, 0xff, 0xff, 0xff}, "mosqito_tex"));
+  create_mosqito_beh(create_monster(ecs, -7, -7, Color{0xff, 0xff, 0xff, 0xff}, "mosqito_tex"));
 
   create_player(ecs, 0, 0, "swordsman_tex");
 

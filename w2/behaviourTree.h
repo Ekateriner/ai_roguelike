@@ -15,6 +15,7 @@ struct BehNode
 {
   virtual ~BehNode() {}
   virtual BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) = 0;
+  virtual void react(Event coming_evt) = 0;
 };
 
 struct BehaviourTree

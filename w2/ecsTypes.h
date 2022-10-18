@@ -114,5 +114,18 @@ struct Team
   int team = 0;
 };
 
+struct Swarm
+{
+  int idx = 0;
+};
+
 struct TextureSource {};
 
+enum Event {
+  NoEvent,
+  HelpEvent
+};
+
+// struct Event {
+//   int event = 0;
+// };
