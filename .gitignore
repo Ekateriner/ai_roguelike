@@ -32,7 +32,6 @@
 *.app
 
 # VS Code (linux)
-build/*
 .vscode
 
 # Visual studio
@@ -57,3 +56,4 @@ CMakeFiles
 CMakeCache.txt
 *.cmake
 compile_commands.json
+build/*
