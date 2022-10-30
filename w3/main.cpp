@@ -1,11 +1,7 @@
-// initial skeleton is a clone from https://github.com/jpcy/bgfx-minimal-example
 //
 #include "raylib.h"
 #include <flecs.h>
-<<<<<<< HEAD
-=======
 #include <algorithm>
->>>>>>> 7f0c2a789c39f20cc7dc49ee351e93f43c8ad0f4
 #include "ecsTypes.h"
 #include "roguelike.h"
 
@@ -24,20 +20,17 @@ int main(int /*argc*/, const char ** /*argv*/)
 {
   int width = 1920;
   int height = 1080;
-  InitWindow(width, height, "w2 AI MIPT");
+  InitWindow(width, height, "w3 AI MIPT");
 
-<<<<<<< HEAD
-=======
   const int scrWidth = GetMonitorWidth(0);
   const int scrHeight = GetMonitorHeight(0);
   if (scrWidth < width || scrHeight < height)
   {
     width = std::min(scrWidth, width);
-    height = std::min(scrHeight, height);
+    height = std::min(scrHeight - 150, height);
     SetWindowSize(width, height);
   }
 
->>>>>>> 7f0c2a789c39f20cc7dc49ee351e93f43c8ad0f4
   flecs::world ecs;
 
   init_roguelike(ecs);

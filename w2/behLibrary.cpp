@@ -148,16 +148,16 @@ struct ReactNode : public BehNode
 
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
-    if (proccessed_evt == NoEvent)
-      return node->update(ecs, entity, bb);
-    else
-    {
-      BehResult res = reactions[proccessed_evt]->update(ecs, entity, bb);
-      if (res == BEH_FAIL)
-        proccessed_evt = NoEvent;
-      return res;
-    }
-    
+    // if (proccessed_evt == NoEvent)
+    //   return node->update(ecs, entity, bb);
+    // else
+    // {
+    //   BehResult res = reactions[proccessed_evt]->update(ecs, entity, bb);
+    //   if (res == BEH_FAIL)
+    //     proccessed_evt = NoEvent;
+    //   return res;
+    // }
+    return node->update(ecs, entity, bb);
   }
 
   void react(Event coming_evt) override {

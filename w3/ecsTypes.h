@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 struct Position;
 struct MovePos;
 
@@ -61,6 +64,7 @@ enum Actions
   EA_MOVE_UP,
   EA_MOVE_END,
   EA_ATTACK = EA_MOVE_END,
+  EA_HEAL_SELF,
   EA_NUM
 };
 
@@ -105,27 +109,23 @@ struct Symbol
 
 struct IsPlayer {};
 
-struct CouldTake {};
-
-struct WayPoint {};
+struct WorldInfoGatherer {};
 
 struct Team
 {
   int team = 0;
 };
 
-struct Swarm
-{
-  int idx = 0;
-};
-
 struct TextureSource {};
 
-enum Event {
-  NoEvent,
-  HelpEvent
+struct TurnCounter
+{
+  int count = 0;
 };
 
-// struct Event {
-//   int event = 0;
-// };
+struct ActionLog
+{
+  std::vector<std::string> log;
+  size_t capacity = 5;
+};
+
