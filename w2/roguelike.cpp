@@ -1,5 +1,6 @@
 #include "roguelike.h"
 #include "ecsTypes.h"
+#include "Event.h"
 #include "raylib.h"
 #include "stateMachine.h"
 #include "aiLibrary.h"
@@ -72,13 +73,21 @@ static void create_mosqito_beh(flecs::entity e, int swarm_idx = 0)
   e.set(Swarm{swarm_idx}).set(Blackboard{});
   BehNode *root =
     selector({
+      sequence({move_to_entity(e, "swarm_enemy")}),
       sequence({
         find_enemy(e, 5.f, "attack_enemy"),
         ask_help(e, "attack_enemy", "swarm_enemy"),
         move_to_entity(e, "attack_enemy")
       }),
-      with_reaction(patrol(e, 2.f, "patrol_pos"),
-        {{HelpEvent, move_to_entity(e, "swarm_enemy")}}
+      with_reaction(patrol(e, 2.f, "patrol_pos"), 
+        {std::pair(
+          HelpEvent, 
+          [](flecs::world &ecs, flecs::entity entity, Blackboard &bb, Blackboard &event_bb) {
+            size_t targetBb = bb.regName<flecs::entity>("swarm_enemy");
+            size_t target_idx = event_bb.regName<flecs::entity>("swarm_enemy");
+            bb.set<flecs::entity>(targetBb, event_bb.get<flecs::entity>(target_idx));
+          }
+        )}
       )
     });
   e.set(BehaviourTree{root});

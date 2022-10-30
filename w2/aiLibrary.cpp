@@ -1,6 +1,7 @@
 #include "aiLibrary.h"
 #include <flecs.h>
 #include "ecsTypes.h"
+#include "Event.h"
 #include "raylib.h"
 #include "math.h"
 #include "aiUtils.h"

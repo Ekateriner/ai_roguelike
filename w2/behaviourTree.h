@@ -3,6 +3,7 @@
 #include <flecs.h>
 #include <memory>
 #include "blackboard.h"
+#include "Event.h"
 
 enum BehResult
 {
@@ -15,7 +16,7 @@ struct BehNode
 {
   virtual ~BehNode() {}
   virtual BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) = 0;
-  virtual void react(Event coming_evt) = 0;
+  virtual void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) = 0;
 };
 
 struct BehaviourTree

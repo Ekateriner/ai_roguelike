@@ -1,10 +1,13 @@
 #pragma once
 
+#include <functional>
 #include "stateMachine.h"
 #include "behaviourTree.h"
 #include "math.h"
 #include "blackboard.h"
 #include "aiUtils.h"
+
+using react_func = std::function<void(flecs::world&, flecs::entity, Blackboard&, Blackboard&)>;
 
 // states
 State *create_attack_enemy_state();
@@ -23,7 +26,7 @@ StateTransition *create_and_transition(StateTransition *lhs, StateTransition *rh
 BehNode *sequence(const std::vector<BehNode*> &nodes);
 BehNode *selector(const std::vector<BehNode*> &nodes);
 BehNode *parallel(const std::vector<BehNode*> &nodes);
-BehNode *with_reaction(BehNode* node, const std::vector<std::pair<Event, BehNode*>> &reactions);
+BehNode *with_reaction(BehNode* node, const std::vector<std::pair<Events, react_func>> &reactions);
 
 BehNode *and_node(const std::vector<BehNode*> &nodes);
 BehNode *or_node(const std::vector<BehNode*> &nodes);
@@ -72,7 +75,7 @@ struct FindClosest : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 template<class T>

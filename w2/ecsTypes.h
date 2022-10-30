@@ -120,12 +120,3 @@ struct Swarm
 };
 
 struct TextureSource {};
-
-enum Event {
-  NoEvent,
-  HelpEvent
-};
-
-// struct Event {
-//   int event = 0;
-// };

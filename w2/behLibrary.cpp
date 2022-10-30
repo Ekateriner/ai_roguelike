@@ -1,5 +1,6 @@
 #include "aiLibrary.h"
 #include "ecsTypes.h"
+#include "Event.h"
 #include "aiUtils.h"
 #include "math.h"
 #include "raylib.h"
@@ -9,6 +10,7 @@
 struct CompoundNode : public BehNode
 {
   std::vector<BehNode*> nodes;
+  int current = 0;
 
   virtual ~CompoundNode()
   {
@@ -23,11 +25,8 @@ struct CompoundNode : public BehNode
     return *this;
   }
 
-  void react(Event coming_evt) override {
-    for (BehNode *node : nodes)
-    {
-      node->react(coming_evt);
-    }
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {
+    nodes[current]->react(ecs, entity, bb, coming_evt);
   }
 };
 
@@ -35,11 +34,15 @@ struct Sequence : public CompoundNode
 {
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
+    int cur_i = 0;
     for (BehNode *node : nodes)
     {
       BehResult res = node->update(ecs, entity, bb);
-      if (res != BEH_SUCCESS)
+      if (res != BEH_SUCCESS) {
+        current = cur_i;
         return res;
+      }
+      cur_i++;
     }
     return BEH_SUCCESS;
   }
@@ -49,11 +52,15 @@ struct Selector : public CompoundNode
 {
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
+    int cur_i = 0;
     for (BehNode *node : nodes)
     {
       BehResult res = node->update(ecs, entity, bb);
-      if (res != BEH_FAIL)
+      if (res != BEH_FAIL) {
+        current = cur_i;
         return res;
+      }
+      cur_i++;
     }
     return BEH_FAIL;
   }
@@ -80,8 +87,8 @@ struct NotNode : public BehNode
     throw "Wrong node result";
   }
 
-  void react(Event coming_evt) override {
-    node->react(coming_evt);
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {
+    node->react(ecs, entity, bb, coming_evt);
   }
 };
 
@@ -96,6 +103,13 @@ struct Parallel : public CompoundNode
         return res;    
     }
     return BEH_RUNNING;
+  }
+
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {
+    for (BehNode *node : nodes)
+    {
+      node->react(ecs, entity, bb, coming_evt);
+    }
   }
 };
 
@@ -134,43 +148,25 @@ struct AndNode : public CompoundNode
 
 struct ReactNode : public BehNode
 {
-  std::map<Event, BehNode*> reactions;
+  std::map<Events, react_func> reactions;
   BehNode* node;
-  Event proccessed_evt = NoEvent;
   
   ReactNode(BehNode *_node) : node(_node) {}
 
-  ReactNode &addReaction(Event evt, BehNode *node)
+  ReactNode &addReaction(Events evt, react_func func)
   {
-    reactions[evt] = node;
+    reactions[evt] = func;
     return *this;
   } 
 
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
-    // if (proccessed_evt == NoEvent)
-    //   return node->update(ecs, entity, bb);
-    // else
-    // {
-    //   BehResult res = reactions[proccessed_evt]->update(ecs, entity, bb);
-    //   if (res == BEH_FAIL)
-    //     proccessed_evt = NoEvent;
-    //   return res;
-    // }
     return node->update(ecs, entity, bb);
   }
 
-  void react(Event coming_evt) override {
-    for (auto [event, _] : reactions) {
-      if (event == proccessed_evt)
-        break;
-      if (event == coming_evt) {
-        proccessed_evt = coming_evt;
-        break;
-      }
-    }
-
-    node->react(coming_evt);
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {
+    reactions[coming_evt.event](ecs, entity, bb, coming_evt.event_bb);
+    node->react(ecs, entity, bb, coming_evt);
   }
 };
 
@@ -207,7 +203,7 @@ struct MoveToEntity : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct IsLowHp : public BehNode
@@ -225,7 +221,7 @@ struct IsLowHp : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct FindEnemy : public BehNode
@@ -266,7 +262,7 @@ struct FindEnemy : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct Flee : public BehNode
@@ -296,7 +292,7 @@ struct Flee : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct Patrol : public BehNode
@@ -327,7 +323,7 @@ struct Patrol : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct RouteGo : public BehNode
@@ -356,7 +352,7 @@ struct RouteGo : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct GetNextPoint : public BehNode
@@ -379,7 +375,7 @@ struct GetNextPoint : public BehNode
     return res;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 struct AskHelp : public BehNode
@@ -400,22 +396,23 @@ struct AskHelp : public BehNode
     if (!ecs.is_valid(targetEntity)){
       return BEH_FAIL;
     }
+    Event evt = {HelpEvent, Blackboard{}};
+    size_t targetBb = evt.event_bb.regName<flecs::entity>(target_bb_name);
+    evt.event_bb.set<flecs::entity>(targetBb, targetEntity);
+
     entity.set([&](const Swarm &swarm)
     {
       swarmQuery.each([&](flecs::entity ally, const Swarm &aswarm, Blackboard &abb, BehaviourTree &abt)
       {
         if (swarm.idx != aswarm.idx)
           return;
-        flecs::entity targetEntity = bb.get<flecs::entity>(entityBb);
-        size_t targetBb = reg_entity_blackboard_var<flecs::entity>(ally, target_bb_name);
-        abb.set<flecs::entity>(targetBb, targetEntity);
-        abt.root->react(HelpEvent);
+        abt.root->react(ecs, ally, abb, evt);
       });
     });
     return BEH_SUCCESS;
   }
 
-  void react(Event coming_evt) override {}
+  void react(flecs::world &ecs, flecs::entity entity, Blackboard &bb, Event coming_evt) override {}
 };
 
 BehNode *sequence(const std::vector<BehNode*> &nodes)
@@ -442,7 +439,7 @@ BehNode *parallel(const std::vector<BehNode*> &nodes)
   return par;
 }
 
-BehNode *with_reaction(BehNode* node, const std::vector<std::pair<Event, BehNode*>> &reactions)
+BehNode *with_reaction(BehNode* node, const std::vector<std::pair<Events, react_func>> &reactions)
 {
   ReactNode *rea = new ReactNode(node);
   for (auto [evt, react] : reactions)
