@@ -78,12 +78,12 @@ static void create_fuzzy_research_beh(flecs::entity e, Position base_pos)
         [](Blackboard &bb)
         {
           const float baseDist = bb.get<float>("baseDist");
-          return exp(baseDist);
+          return exp(baseDist - 9.);
         }
       ),
       std::make_pair(
         sequence({
-          find_enemy(e, 3.f, "attack_enemy"),
+          find_enemy(e, 10.f, "attack_enemy"),
           move_to_entity(e, "attack_enemy")
         }),
         [](Blackboard &bb)
@@ -100,7 +100,7 @@ static void create_fuzzy_research_beh(flecs::entity e, Position base_pos)
         [](Blackboard &bb)
         {
           const float baseEnemyDist = bb.get<float>("baseEnemyDist");
-          return 10.*exp(6. - baseEnemyDist);
+          return 5.*exp(6. - baseEnemyDist);
         }
       )
     });
@@ -319,19 +319,6 @@ static Position move_pos(Position pos, int action)
   else if (action == EA_MOVE_DOWN)
     pos.y++;
   return pos;
-}
-
-static void push_to_log(flecs::world &ecs, const char *msg)
-{
-  static auto queryLog = ecs.query<ActionLog, const TurnCounter>();
-  printf("pushing to log %s\n", msg);
-  queryLog.each([&](ActionLog &l, const TurnCounter &c)
-  {
-    l.log.push_back(std::to_string(c.count) + ": " + msg);
-    printf("pushed to log %s\n", msg);
-    if (l.log.size() > l.capacity)
-      l.log.erase(l.log.begin());
-  });
 }
 
 static void process_actions(flecs::world &ecs)

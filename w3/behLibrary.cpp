@@ -258,12 +258,12 @@ struct FindEnemy : public BehNode
   }
 };
 
-struct ClosestToEnemy : public BehNode
+struct ClosestEnemyTo : public BehNode
 {
   size_t enemyBb = size_t(-1);
   size_t positionBb = size_t(-1);
-  float distance = 0;
-  ClosestToEnemy(flecs::entity entity, const char *position_bb_name, const char *enemy_bb_name)
+
+  ClosestEnemyTo(flecs::entity entity, const char *position_bb_name, const char *enemy_bb_name)
   {
     positionBb = reg_entity_blackboard_var<flecs::entity>(entity, position_bb_name);
     enemyBb = reg_entity_blackboard_var<flecs::entity>(entity, enemy_bb_name);
@@ -289,7 +289,7 @@ struct ClosestToEnemy : public BehNode
           closestEnemy = enemy;
         }
       });
-      if (ecs.is_valid(closestEnemy) && closestDist <= distance)
+      if (ecs.is_valid(closestEnemy))
       {
         bb.set<flecs::entity>(enemyBb, closestEnemy);
         res = BEH_SUCCESS;
@@ -436,7 +436,7 @@ BehNode *find_enemy(flecs::entity entity, float dist, const char *bb_name)
 
 BehNode *closest_enemy_to(flecs::entity entity, const char *position_bb_name, const char *enemy_bb_name)
 {
-  return new ClosestToEnemy(entity, position_bb_name, enemy_bb_name);
+  return new ClosestEnemyTo(entity, position_bb_name, enemy_bb_name);
 }
 
 BehNode *flee(flecs::entity entity, const char *bb_name)

@@ -59,3 +59,15 @@ inline size_t reg_entity_blackboard_var(flecs::entity entity, const char *bb_nam
   return res;
 }
 
+static void push_to_log(flecs::world &ecs, const char *msg)
+{
+  static auto queryLog = ecs.query<ActionLog, const TurnCounter>();
+  printf("pushing to log %s\n", msg);
+  queryLog.each([&](ActionLog &l, const TurnCounter &c)
+  {
+    l.log.push_back(std::to_string(c.count) + ": " + msg);
+    printf("pushed to log %s\n", msg);
+    if (l.log.size() > l.capacity)
+      l.log.erase(l.log.begin());
+  });
+}

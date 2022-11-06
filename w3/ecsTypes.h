@@ -126,6 +126,6 @@ struct TurnCounter
 struct ActionLog
 {
   std::vector<std::string> log;
-  size_t capacity = 5;
+  size_t capacity = 25;
 };
 
