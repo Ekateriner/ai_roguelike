@@ -255,10 +255,10 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
-  create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
 
   Position base{-3, -3};
   create_fuzzy_research_beh(create_monster(ecs, -4, -4, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);

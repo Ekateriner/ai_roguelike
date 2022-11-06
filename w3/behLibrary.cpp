@@ -6,6 +6,7 @@
 #include "blackboard.h"
 #include <ranges>
 #include <random>
+#include <iostream>
 
 static auto& get_engine() {
   static std::random_device rd{};
@@ -83,19 +84,24 @@ struct UtilitySelector : public CompoundNode
       float sum = 0;
       for (auto i : std::views::iota(size_t(0), utilities.size()))
       {
-        const float utilityScore = exp(utilities[i](bb)) + inertia[i];
+        std::cout << utilities[i](bb) << " ";
+        const float utilityScore = utilities[i](bb) + inertia[i];
         sum += utilityScore;
         utilityScores.push_back(utilityScore);
       }
+      std::cout << " = " << sum << std::endl;
       for (auto _ : std::views::iota(size_t(0), nodes.size())) {
         // generate
-        std::uniform_real_distribution<float> dist(0, sum);
+        std::uniform_real_distribution<float> dist(0.0, sum);
         float proba = dist(get_engine());
-
+      
         size_t nodeIdx = 0;
-        for(; proba > 0; nodeIdx++) {
+        for(; proba >= 0.0; nodeIdx++){
           proba -= utilityScores[nodeIdx];
         }
+        
+        nodeIdx -= 1;
+        std::cout << nodeIdx << std::endl;
 
         BehResult res = nodes[nodeIdx]->update(ecs, entity, bb);
         if (res != BEH_FAIL) {
@@ -133,8 +139,8 @@ struct UtilitySelector : public CompoundNode
   }
 
 private:
-  float inertia_step = 1.0;
-  float cooldown = 0.1;
+  float inertia_step = 100.0;
+  float cooldown = 10.;
   void update_inertia(size_t nodeIdx) {
     float prev = inertia[nodeIdx];
     std::ranges::fill(inertia, 0);
@@ -187,7 +193,7 @@ struct MoveToPosition : public BehNode
     targetBb = reg_entity_blackboard_var<Position>(entity, bb_name);
   }
 
-  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
     BehResult res = BEH_RUNNING;
     entity.set([&](Action &a, const Position &pos)
@@ -358,7 +364,7 @@ struct Patrol : public BehNode
 
 struct MoveRandom : public BehNode
 {
-  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
   {
     BehResult res = BEH_RUNNING;
     entity.set([&](Action &a, const Position &pos)
@@ -408,7 +414,7 @@ BehNode *selector(const std::vector<BehNode*> &nodes)
 
 BehNode *utility_selector(const std::vector<std::pair<BehNode*, utility_function>> &nodes)
 {
-  UtilitySelector *usel = new UtilitySelector;
+  UtilitySelector *usel = new UtilitySelector(true);
   for (auto& [node, util] : nodes) {
     usel->pushNode(node, util);
   }
