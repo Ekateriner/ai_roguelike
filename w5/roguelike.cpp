@@ -3,191 +3,18 @@
 #include "raylib.h"
 #include "stateMachine.h"
 #include "aiLibrary.h"
-#include "aiUtils.h"
 #include "blackboard.h"
 #include "math.h"
+#include "dungeonUtils.h"
+#include "dijkstraMapGen.h"
+#include "dmapFollower.h"
+#include "dmapBeh.h"
+#include "rlikeObjects.h"
 
-static void create_fuzzy_monster_beh(flecs::entity e)
-{
-  e.set(Blackboard{});
-  BehNode *root =
-    utility_selector({
-      std::make_pair(
-        sequence({
-          find_enemy(e, 4.f, "flee_enemy"),
-          flee(e, "flee_enemy")
-        }),
-        [](Blackboard &bb)
-        {
-          const float hp = bb.get<float>("hp");
-          const float enemyDist = bb.get<float>("enemyDist");
-          return (100.f - hp) * 5.f - 50.f * enemyDist;
-        }
-      ),
-      std::make_pair(
-        sequence({
-          find_enemy(e, 3.f, "attack_enemy"),
-          move_to_entity(e, "attack_enemy")
-        }),
-        [](Blackboard &bb)
-        {
-          const float enemyDist = bb.get<float>("enemyDist");
-          return 100.f - 10.f * enemyDist;
-        }
-      ),
-      std::make_pair(
-        patrol(e, 2.f, "patrol_pos"),
-        [](Blackboard &)
-        {
-          return 50.f;
-        }
-      ),
-      std::make_pair(
-        patch_up(100.f),
-        [](Blackboard &bb)
-        {
-          const float hp = bb.get<float>("hp");
-          return 140.f - hp;
-        }
-      )
-    });
-  e.add<WorldInfoGatherer>();
-  e.set(BehaviourTree{root});
-}
-
-static void create_fuzzy_research_beh(flecs::entity e, Position base_pos)
-{
-  Blackboard bb{};
-  size_t idx = bb.regName<Position>("base_position");
-  bb.set<Position>(idx, base_pos);
-  e.set(Blackboard(bb));
-  BehNode *root =
-    utility_selector({
-      std::make_pair(
-        sequence({
-          random_move()
-        }),
-        [](Blackboard &bb)
-        {
-          const float allyDist = bb.get<float>("allyDist");
-          return 3.*exp(5. - allyDist);
-        }
-      ),
-      std::make_pair(
-        move_to_position(e, "base_position"),
-        [](Blackboard &bb)
-        {
-          const float baseDist = bb.get<float>("baseDist");
-          return exp(baseDist - 9.);
-        }
-      ),
-      std::make_pair(
-        sequence({
-          find_enemy(e, 10.f, "attack_enemy"),
-          move_to_entity(e, "attack_enemy")
-        }),
-        [](Blackboard &bb)
-        {
-          const float enemyDist = bb.get<float>("enemyDist");
-          return 2.0*exp(3. - enemyDist);
-        }
-      ),
-      std::make_pair(
-        sequence({
-          closest_enemy_to(e, "base_position", "attack_enemy"),
-          move_to_entity(e, "attack_enemy")
-        }),
-        [](Blackboard &bb)
-        {
-          const float baseEnemyDist = bb.get<float>("baseEnemyDist");
-          return 5.*exp(6. - baseEnemyDist);
-        }
-      )
-    });
-  e.add<WorldInfoGatherer>();
-  e.set(BehaviourTree{root});
-}
-
-
-static void create_minotaur_beh(flecs::entity e)
-{
-  e.set(Blackboard{});
-  BehNode *root =
-    selector({
-      sequence({
-        is_low_hp(50.f),
-        find_enemy(e, 4.f, "flee_enemy"),
-        flee(e, "flee_enemy")
-      }),
-      sequence({
-        find_enemy(e, 3.f, "attack_enemy"),
-        move_to_entity(e, "attack_enemy")
-      }),
-      patrol(e, 2.f, "patrol_pos")
-    });
-  e.set(BehaviourTree{root});
-}
-
-static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src, int team=1)
-{
-  flecs::entity textureSrc = ecs.entity(texture_src);
-  return ecs.entity()
-    .set(Position{x, y})
-    .set(MovePos{x, y})
-    .set(Hitpoints{100.f})
-    .set(Action{EA_NOP})
-    .set(Color{col})
-    .add<TextureSource>(textureSrc)
-    .set(StateMachine{})
-    .set(Team{team})
-    .set(NumActions{1, 0})
-    .set(MeleeDamage{20.f})
-    .set(Blackboard{});
-}
-
-static void create_player(flecs::world &ecs, int x, int y, const char *texture_src)
-{
-  flecs::entity textureSrc = ecs.entity(texture_src);
-  ecs.entity("player")
-    .set(Position{x, y})
-    .set(MovePos{x, y})
-    .set(Hitpoints{100.f})
-    //.set(Color{0xee, 0xee, 0xee, 0xff})
-    .set(Action{EA_NOP})
-    .add<IsPlayer>()
-    .set(Team{0})
-    .set(PlayerInput{})
-    .set(NumActions{2, 0})
-    .set(Color{255, 255, 255, 255})
-    .add<TextureSource>(textureSrc)
-    .set(MeleeDamage{50.f});
-}
-
-static void create_heal(flecs::world &ecs, int x, int y, float amount)
-{
-  ecs.entity()
-    .set(Position{x, y})
-    .set(HealAmount{amount})
-    .set(Color{0xff, 0x44, 0x44, 0xff});
-}
-
-static void create_powerup(flecs::world &ecs, int x, int y, float amount)
-{
-  ecs.entity()
-    .set(Position{x, y})
-    .set(PowerupAmount{amount})
-    .set(Color{0xff, 0xff, 0x00, 0xff});
-}
-
-static void create_base(flecs::world &ecs, int x, int y)
-{
-  ecs.entity()
-    .set(Position{x, y})
-    .set(Color{0xff, 0xff, 0xff, 0xff});
-}
 
 static void register_roguelike_systems(flecs::world &ecs)
 {
+  static auto dungeonDataQuery = ecs.query<const DungeonData>();
   ecs.system<PlayerInput, Action, const IsPlayer>()
     .each([&](PlayerInput &inp, Action &a, const IsPlayer)
     {
@@ -209,30 +36,92 @@ static void register_roguelike_systems(flecs::world &ecs)
       inp.down = down;
     });
   ecs.system<const Position, const Color>()
-    .term<TextureSource>(flecs::Wildcard).not_()
-    .each([&](const Position &pos, const Color color)
-    {
-      const Rectangle rect = {float(pos.x), float(pos.y), 1, 1};
-      DrawRectangleRec(rect, color);
-    });
-  ecs.system<const Position, const Color>()
     .term<TextureSource>(flecs::Wildcard)
+    .term<BackgroundTile>()
     .each([&](flecs::entity e, const Position &pos, const Color color)
     {
       const auto textureSrc = e.target<TextureSource>();
       DrawTextureQuad(*textureSrc.get<Texture2D>(),
           Vector2{1, 1}, Vector2{0, 0},
-          Rectangle{float(pos.x), float(pos.y), 1, 1}, color);
+          Rectangle{float(pos.x) * tile_size, float(pos.y) * tile_size, tile_size, tile_size}, color);
+    });
+  ecs.system<const Position, const Color>()
+    .term<TextureSource>(flecs::Wildcard).not_()
+    .each([&](const Position &pos, const Color color)
+    {
+      const Rectangle rect = {float(pos.x) * tile_size, float(pos.y) * tile_size, tile_size, tile_size};
+      DrawRectangleRec(rect, color);
+    });
+  ecs.system<const Position, const Color>()
+    .term<TextureSource>(flecs::Wildcard)
+    .term<BackgroundTile>().not_()
+    .each([&](flecs::entity e, const Position &pos, const Color color)
+    {
+      const auto textureSrc = e.target<TextureSource>();
+      DrawTextureQuad(*textureSrc.get<Texture2D>(),
+          Vector2{1, 1}, Vector2{0, 0},
+          Rectangle{float(pos.x) * tile_size, float(pos.y) * tile_size, tile_size, tile_size}, color);
     });
   ecs.system<const Position, const Hitpoints>()
     .each([&](const Position &pos, const Hitpoints &hp)
     {
       constexpr float hpPadding = 0.05f;
       const float hpWidth = 1.f - 2.f * hpPadding;
-      const Rectangle underRect = {float(pos.x + hpPadding), float(pos.y-0.25f), hpWidth, 0.1f};
+      const Rectangle underRect = {float(pos.x + hpPadding) * tile_size, float(pos.y-0.25f) * tile_size,
+                                   hpWidth * tile_size, 0.1f * tile_size};
       DrawRectangleRec(underRect, BLACK);
-      const Rectangle hpRect = {float(pos.x + hpPadding), float(pos.y-0.25f), hp.hitpoints / 100.f * hpWidth, 0.1f};
+      const Rectangle hpRect = {float(pos.x + hpPadding) * tile_size, float(pos.y-0.25f) * tile_size,
+                                hp.hitpoints / 100.f * hpWidth * tile_size, 0.1f * tile_size};
       DrawRectangleRec(hpRect, RED);
+    });
+
+  ecs.system<Texture2D>()
+    .each([&](Texture2D &tex)
+    {
+      SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+    });
+  ecs.system<const DmapWeights>()
+    .term<VisualiseMap>()
+    .each([&](const DmapWeights &wt)
+    {
+      dungeonDataQuery.each([&](const DungeonData &dd)
+      {
+        for (size_t y = 0; y < dd.height; ++y)
+          for (size_t x = 0; x < dd.width; ++x)
+          {
+            float sum = 0.f;
+            for (const auto &pair : wt.weights)
+            {
+              ecs.entity(pair.first.c_str()).get([&](const DijkstraMapData &dmap)
+              {
+                float v = dmap.map[y * dd.width + x];
+                if (v < 1e5f)
+                  sum += powf(v * pair.second.mult, pair.second.pow);
+                else
+                  sum += v;
+              });
+            }
+            if (sum < 1e5f)
+              DrawText(TextFormat("%.1f", sum),
+                  int((float(x) + 0.2f) * tile_size), int((float(y) + 0.5f) * tile_size), 150, WHITE);
+          }
+      });
+    });
+  ecs.system<const DijkstraMapData>()
+    .term<VisualiseMap>()
+    .each([](const DijkstraMapData &dmap)
+    {
+      dungeonDataQuery.each([&](const DungeonData &dd)
+      {
+        for (size_t y = 0; y < dd.height; ++y)
+          for (size_t x = 0; x < dd.width; ++x)
+          {
+            const float val = dmap.map[y * dd.width + x];
+            if (val < 1e5f)
+              DrawText(TextFormat("%.1f", val),
+                  int((float(x) + 0.2f) * tile_size), int((float(y) + 0.5f) * tile_size), 150, WHITE);
+          }
+      });
     });
 }
 
@@ -242,11 +131,9 @@ void init_roguelike(flecs::world &ecs)
   register_roguelike_systems(ecs);
 
   ecs.entity("swordsman_tex")
-    .set(Texture2D{LoadTexture("w3/assets/swordsman.png")});
+    .set(Texture2D{LoadTexture("assets/swordsman.png")});
   ecs.entity("minotaur_tex")
-    .set(Texture2D{LoadTexture("w3/assets/minotaur.png")});
-  ecs.entity("zombie_tex")
-    .set(Texture2D{LoadTexture("w3/assets/zombie.png")});
+    .set(Texture2D{LoadTexture("assets/minotaur.png")});
 
   ecs.observer<Texture2D>()
     .event(flecs::OnRemove)
@@ -255,35 +142,48 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
-  // create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  // create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  // create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
-  // create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0xff, 0xff, 0xff, 0xff}, "minotaur_tex"));
+  create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  create_hive_monster(create_monster(ecs, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
+  create_hive(create_player_fleer(create_monster(ecs, Color{0, 255, 0, 255}, "minotaur_tex")));
 
-  Position base{-3, -3};
-  create_fuzzy_research_beh(create_monster(ecs, -4, -4, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -2, -2, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -4, -2, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -2, -4, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -4, -3, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -3, -4, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -3, -2, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_fuzzy_research_beh(create_monster(ecs, -2, -3, Color{0xff, 0xff, 0xff, 0xff}, "zombie_tex", 2), base);
-  create_base(ecs, base.x, base.y);
-
-  create_player(ecs, 0, 0, "swordsman_tex");
-
-  create_powerup(ecs, 7, 7, 10.f);
-  create_powerup(ecs, 10, -6, 10.f);
-  create_powerup(ecs, 10, -4, 10.f);
-
-  create_heal(ecs, -5, -5, 50.f);
-  create_heal(ecs, -5, 5, 50.f);
+  create_player(ecs, "swordsman_tex");
 
   ecs.entity("world")
     .set(TurnCounter{})
     .set(ActionLog{});
 }
+
+void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)
+{
+  flecs::entity wallTex = ecs.entity("wall_tex")
+    .set(Texture2D{LoadTexture("assets/wall.png")});
+  flecs::entity floorTex = ecs.entity("floor_tex")
+    .set(Texture2D{LoadTexture("assets/floor.png")});
+
+  std::vector<char> dungeonData;
+  dungeonData.resize(w * h);
+  for (size_t y = 0; y < h; ++y)
+    for (size_t x = 0; x < w; ++x)
+      dungeonData[y * w + x] = tiles[y * w + x];
+  ecs.entity("dungeon")
+    .set(DungeonData{dungeonData, w, h});
+
+  for (size_t y = 0; y < h; ++y)
+    for (size_t x = 0; x < w; ++x)
+    {
+      char tile = tiles[y * w + x];
+      flecs::entity tileEntity = ecs.entity()
+        .add<BackgroundTile>()
+        .set(Position{int(x), int(y)})
+        .set(Color{255, 255, 255, 255});
+      if (tile == dungeon::wall)
+        tileEntity.add<TextureSource>(wallTex);
+      else if (tile == dungeon::floor)
+        tileEntity.add<TextureSource>(floorTex);
+    }
+}
+
 
 static bool is_player_acted(flecs::world &ecs)
 {
@@ -321,6 +221,17 @@ static Position move_pos(Position pos, int action)
   return pos;
 }
 
+static void push_to_log(flecs::world &ecs, const char *msg)
+{
+  static auto queryLog = ecs.query<ActionLog, const TurnCounter>();
+  queryLog.each([&](ActionLog &l, const TurnCounter &c)
+  {
+    l.log.push_back(std::to_string(c.count) + ": " + msg);
+    if (l.log.size() > l.capacity)
+      l.log.erase(l.log.begin());
+  });
+}
+
 static void process_actions(flecs::world &ecs)
 {
   static auto processActions = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
@@ -341,7 +252,7 @@ static void process_actions(flecs::world &ecs)
     processActions.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &dmg, const Team &team)
     {
       Position nextPos = move_pos(pos, a.action);
-      bool blocked = false;
+      bool blocked = !dungeon::is_tile_walkable(ecs, nextPos);
       checkAttacks.each([&](flecs::entity enemy, const MovePos &epos, Hitpoints &hp, const Team &enemy_team)
       {
         if (entity != enemy && epos == nextPos)
@@ -426,36 +337,20 @@ static void gather_world_info(flecs::world &ecs)
     push_info_to_bb(bb, "hp", hp.hitpoints);
     float numAllies = 0; // note float
     float closestEnemyDist = 100.f;
-    float closestAllyDist = 100.f;
-    float closestBaseEnemyDist = 100.f;
-
-    Position base = bb.get<Position>("base_position");
     alliesQuery.each([&](const Position &apos, const Team &ateam)
     {
       constexpr float limitDist = 5.f;
       if (team.team == ateam.team && dist_sq(pos, apos) < sqr(limitDist))
         numAllies += 1.f;
-      if (team.team == ateam.team)
-      {
-        const float allyDist = dist(pos, apos);
-        if (allyDist < closestAllyDist)
-          closestAllyDist = allyDist;
-      }
       if (team.team != ateam.team)
       {
         const float enemyDist = dist(pos, apos);
         if (enemyDist < closestEnemyDist)
           closestEnemyDist = enemyDist;
-        const float enemyBaseDist = dist(base, apos);
-        if (enemyBaseDist < closestBaseEnemyDist)
-          closestBaseEnemyDist = enemyBaseDist;
       }
     });
     push_info_to_bb(bb, "alliesNum", numAllies);
-    push_info_to_bb(bb, "allyDist", closestAllyDist);
-    push_info_to_bb(bb, "baseDist", dist(base, pos));
     push_info_to_bb(bb, "enemyDist", closestEnemyDist);
-    push_info_to_bb(bb, "baseEnemyDist", closestBaseEnemyDist);
   });
 }
 
@@ -480,10 +375,31 @@ void process_turn(flecs::world &ecs)
         {
           bt.update(ecs, e, bb);
         });
+        process_dmap_followers(ecs);
       });
       turnIncrementer.each([](TurnCounter &tc) { tc.count++; });
     }
     process_actions(ecs);
+
+    std::vector<float> approachMap;
+    dmaps::gen_player_approach_map(ecs, approachMap);
+    ecs.entity("approach_map")
+      .set(DijkstraMapData{approachMap});
+
+    std::vector<float> fleeMap;
+    dmaps::gen_player_flee_map(ecs, fleeMap);
+    ecs.entity("flee_map")
+      .set(DijkstraMapData{fleeMap});
+
+    std::vector<float> hiveMap;
+    dmaps::gen_hive_pack_map(ecs, hiveMap);
+    ecs.entity("hive_map")
+      .set(DijkstraMapData{hiveMap});
+
+    //ecs.entity("flee_map").add<VisualiseMap>();
+    ecs.entity("hive_follower_sum")
+      .set(DmapWeights{{{"hive_map", {1.f, 1.f}}, {"approach_map", {1.8f, 0.8f}}}})
+      .add<VisualiseMap>();
   }
 }
 
