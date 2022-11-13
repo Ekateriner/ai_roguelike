@@ -1,6 +1,11 @@
 #include "dijkstraMapGen.h"
 #include "ecsTypes.h"
 #include "dungeonUtils.h"
+#include <queue>
+#include <cmath>
+#include <functional>
+
+using dijkstra_tail = std::pair<float, std::pair<size_t, size_t>>;
 
 template<typename Callable>
 static void query_dungeon_data(flecs::world &ecs, Callable c)
@@ -66,6 +71,71 @@ static void process_dmap(std::vector<float> &map, const DungeonData &dd)
   }
 }
 
+float linear_update(int, int, float val, int, int) {
+  return val + 1;
+}
+
+static void update_map(std::vector<float> &map, const DungeonData &dd, size_t x, size_t y, 
+                       std::function<float(int, int, float, int, int)> neigh_map = linear_update) {
+  //dijkstra
+  std::priority_queue<dijkstra_tail, std::vector<dijkstra_tail>, std::greater<dijkstra_tail>> queue;
+  std::vector<bool> visited(map.size(), false);
+  queue.push({0., {x, y}});
+
+  while (!queue.empty()) 
+  {
+    auto [cur_map, position] = queue.top();
+    auto [cur_x, cur_y] = position;
+    queue.pop();
+
+    if (visited[cur_y * dd.width + cur_x])
+      continue;
+    
+    visited[cur_y * dd.width + cur_x] = true;
+    map[cur_y * dd.width + cur_x] = cur_map;
+
+    if (cur_x > 0 && 
+        !visited[cur_y * dd.width + (cur_x - 1)] && 
+        dd.tiles[cur_y * dd.width + (cur_x - 1)] == dungeon::floor) {
+      float val = neigh_map(cur_x, cur_y, cur_map, cur_x - 1, cur_y);
+      if (map[cur_y * dd.width + cur_x - 1] > val) {
+        map[cur_y * dd.width + cur_x - 1] = val;  
+        queue.push({val, {cur_x - 1, cur_y}});
+      }
+    }
+
+    if (cur_x < dd.width - 1 && 
+        !visited[cur_y * dd.width + (cur_x + 1)] &&
+        dd.tiles[cur_y * dd.width + (cur_x + 1)] == dungeon::floor) {
+      float val = neigh_map(cur_x, cur_y, cur_map, cur_x + 1, cur_y);
+      if (map[cur_y * dd.width + cur_x + 1] > val) {
+        map[cur_y * dd.width + cur_x + 1] = val;  
+        queue.push({val, {cur_x + 1, cur_y}});
+      }
+    }
+
+    if (cur_y > 0 && 
+        !visited[(cur_y - 1) * dd.width + cur_x] &&
+        dd.tiles[(cur_y - 1) * dd.width + cur_x] == dungeon::floor) {
+      float val = neigh_map(cur_x, cur_y, cur_map, cur_x, cur_y - 1);
+      if (map[(cur_y - 1) * dd.width + cur_x] > val) {
+        map[(cur_y - 1) * dd.width + cur_x] = val;  
+        queue.push({val, {cur_x, cur_y - 1}});
+      }
+    }
+
+    if (cur_y < dd.height - 1 && 
+        !visited[(cur_y + 1) * dd.width + cur_x] &&
+        dd.tiles[(cur_y + 1) * dd.width + cur_x] == dungeon::floor) {
+      float val = neigh_map(cur_x, cur_y, cur_map, cur_x, cur_y + 1);
+      if (map[(cur_y + 1) * dd.width + cur_x] > val) {
+        map[(cur_y + 1) * dd.width + cur_x] = val;  
+        queue.push({val, {cur_x, cur_y + 1}});
+      }
+    }
+  }
+}
+
 void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
 {
   query_dungeon_data(ecs, [&](const DungeonData &dd)
@@ -74,22 +144,66 @@ void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
     query_characters_positions(ecs, [&](const Position &pos, const Team &t)
     {
       if (t.team == 0) // player team hardcode
+      {
         map[pos.y * dd.width + pos.x] = 0.f;
+        update_map(map, dd, pos.x, pos.y, linear_update);
+      }
     });
-    process_dmap(map, dd);
+  });
+}
+
+void dmaps::gen_player_vision_map(flecs::world &ecs, std::vector<float> &map)
+{
+  query_dungeon_data(ecs, [&](const DungeonData &dd)
+  {
+    init_tiles(map, dd);
+    query_characters_positions(ecs, [&](const Position &pos, const Team &t)
+    {
+      if (t.team == 0) // player team hardcode
+      {
+        map[pos.y * dd.width + pos.x] = 0.f;
+        update_map(map, dd, pos.x, pos.y, 
+        [&](int /*prev_x*/, int /*prev_y*/, float /*val*/, int new_x, int new_y) {
+          float dir_x = 2 * (pos.x > new_x) - 1;
+          float dir_y = 2 * (pos.y > new_y) - 1;
+          float new_val = 0;
+          if (abs(pos.x - new_x) > abs(pos.y - new_y)) {
+            new_val = map[new_y * dd.width + (new_x + dir_x)] + 1 + 
+                      (dd.tiles[pos.y * dd.width + (pos.x - dir_x)] == dungeon::wall) * invalid_tile_value;
+          }
+          else if (abs(pos.x - new_x) == abs(pos.y - new_y)) {
+            new_val = map[(new_y + dir_y) * dd.width + (new_x + dir_x)] + 2 +
+                      (dd.tiles[(pos.y - dir_y) * dd.width + (pos.x - dir_x)] == dungeon::wall) * invalid_tile_value;
+          }
+          else {
+            new_val = map[(new_y + dir_y) * dd.width + new_x] + 1 +
+                      (dd.tiles[(pos.y - dir_y) * dd.width + pos.x] == dungeon::wall) * invalid_tile_value;
+          }
+          return std::min(new_val, invalid_tile_value);
+        });
+      }
+    });
   });
 }
 
 void dmaps::gen_player_flee_map(flecs::world &ecs, std::vector<float> &map)
 {
-  gen_player_approach_map(ecs, map);
+  ecs.entity("approach_map").get([&](const DijkstraMapData &dmap) {
+    map = dmap.map;
+  });
   for (float &v : map)
     if (v < invalid_tile_value)
       v *= -1.2f;
-  query_dungeon_data(ecs, [&](const DungeonData &dd)
-  {
-    process_dmap(map, dd);
+}
+
+void dmaps::gen_archer_map(flecs::world &ecs, std::vector<float> &map)
+{
+  ecs.entity("approach_map").get([&](const DijkstraMapData &dmap) {
+    map = dmap.map;
   });
+  for (float &v : map)
+    if (v < invalid_tile_value)
+      v = abs(v - 4);// + (v > 4) * 2;
 }
 
 void dmaps::gen_hive_pack_map(flecs::world &ecs, std::vector<float> &map)
@@ -101,8 +215,8 @@ void dmaps::gen_hive_pack_map(flecs::world &ecs, std::vector<float> &map)
     hiveQuery.each([&](const Position &pos, const Hive &)
     {
       map[pos.y * dd.width + pos.x] = 0.f;
+      update_map(map, dd, pos.x, pos.y);
     });
-    process_dmap(map, dd);
   });
 }
 

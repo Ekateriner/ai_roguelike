@@ -11,25 +11,63 @@
 
 static flecs::entity create_player_approacher(flecs::entity e)
 {
-  e.set(DmapWeights{{{"approach_map", {1.f, 1.f}}}});
+  e.set(DmapWeights{{{"approach_map", 
+                      [](flecs::entity, float value) {
+                        return value;
+                      } 
+                    }}});
   return e;
 }
 
 static flecs::entity create_player_fleer(flecs::entity e)
 {
-  e.set(DmapWeights{{{"flee_map", {1.f, 1.f}}}});
+  e.set(DmapWeights{{{"flee_map",
+                      [](flecs::entity, float value) {
+                        return value;
+                      }
+                    }}});
   return e;
 }
 
 static flecs::entity create_hive_follower(flecs::entity e)
 {
-  e.set(DmapWeights{{{"hive_map", {1.f, 1.f}}}});
+  e.set(DmapWeights{{{"hive_map", 
+                      [](flecs::entity, float value) {
+                        return value;
+                      }
+  }}});
   return e;
 }
 
 static flecs::entity create_hive_monster(flecs::entity e)
 {
-  e.set(DmapWeights{{{"hive_map", {1.f, 1.f}}, {"approach_map", {1.8, 0.8f}}}});
+  e.set(DmapWeights{{{"hive_map", 
+                      [](flecs::entity e, float value) {
+                        bool low_hp = false; 
+                        e.get([&](const Hitpoints hp) {
+                          if (hp.hitpoints < 70.0f) low_hp = true;
+                        });
+                        return value * (low_hp ? 3.0 : 1.0);
+                      }}, 
+                     {"approach_map", 
+                      [](flecs::entity, float value) {
+                        if (value < 1e5) { return powf(value * 1.8, 0.8); } 
+                        return value;
+                      }}}});
+  return e;
+}
+
+static flecs::entity create_archer_monster(flecs::entity e)
+{
+  e.set(ShootDamage{10.f});
+  e.set(DmapWeights{{{"vision_map", [](flecs::entity, float value) {
+                        return value;
+                      }}, 
+                      {"archer_map", 
+                      [](flecs::entity, float value) {
+                        if (value < 1e5) { return 3.0f * value; }
+                        return value;
+                      }}}});
   return e;
 }
 
@@ -251,7 +289,7 @@ static void register_roguelike_systems(flecs::world &ecs)
     });
   ecs.system<const DmapWeights>()
     .term<VisualiseMap>()
-    .each([&](const DmapWeights &wt)
+    .each([&](flecs::entity e, const DmapWeights &wt)
     {
       dungeonDataQuery.each([&](const DungeonData &dd)
       {
@@ -264,10 +302,7 @@ static void register_roguelike_systems(flecs::world &ecs)
               ecs.entity(pair.first.c_str()).get([&](const DijkstraMapData &dmap)
               {
                 float v = dmap.map[y * dd.width + x];
-                if (v < 1e5f)
-                  sum += powf(v * pair.second.mult, pair.second.pow);
-                else
-                  sum += v;
+                sum += pair.second(e, v);
               });
             }
             if (sum < 1e5f)
@@ -300,9 +335,11 @@ void init_roguelike(flecs::world &ecs)
   register_roguelike_systems(ecs);
 
   ecs.entity("swordsman_tex")
-    .set(Texture2D{LoadTexture("assets/swordsman.png")});
+    .set(Texture2D{LoadTexture("w4/assets/swordsman.png")});
   ecs.entity("minotaur_tex")
-    .set(Texture2D{LoadTexture("assets/minotaur.png")});
+    .set(Texture2D{LoadTexture("w4/assets/minotaur.png")});
+  ecs.entity("archer_tex")
+    .set(Texture2D{LoadTexture("w4/assets/archer.png")});
 
   ecs.observer<Texture2D>()
     .event(flecs::OnRemove)
@@ -316,6 +353,8 @@ void init_roguelike(flecs::world &ecs)
   create_hive_monster(create_monster(ecs, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
   create_hive(create_player_fleer(create_monster(ecs, Color{0, 255, 0, 255}, "minotaur_tex")));
 
+  create_archer_monster(create_monster(ecs, Color{0xff, 0xff, 0xff, 0xff}, "archer_tex"));
+
   create_player(ecs, "swordsman_tex");
 
   ecs.entity("world")
@@ -326,9 +365,9 @@ void init_roguelike(flecs::world &ecs)
 void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)
 {
   flecs::entity wallTex = ecs.entity("wall_tex")
-    .set(Texture2D{LoadTexture("assets/wall.png")});
+    .set(Texture2D{LoadTexture("w4/assets/wall.png")});
   flecs::entity floorTex = ecs.entity("floor_tex")
-    .set(Texture2D{LoadTexture("assets/floor.png")});
+    .set(Texture2D{LoadTexture("w4/assets/floor.png")});
 
   std::vector<char> dungeonData;
   dungeonData.resize(w * h);
@@ -406,9 +445,22 @@ static void process_actions(flecs::world &ecs)
   static auto processActions = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
   static auto processHeals = ecs.query<Action, Hitpoints>();
   static auto checkAttacks = ecs.query<const MovePos, Hitpoints, const Team>();
+  static auto processShoot = ecs.query<Action, const Position, const ShootDamage, const Team>();
+  static auto checkShoot = ecs.query<const Position, Hitpoints, const Team>();
   // Process all actions
   ecs.defer([&]
   {
+    processShoot.each([&](Action &a, const Position pos, const ShootDamage &dmg, const Team &team) {
+      if (a.action != EA_SHOOT)
+        return;
+      a.action = EA_NOP;
+      //find first suit enemy
+      checkShoot.each([&](const Position &epos, Hitpoints &hp, const Team &enemy_team) {
+        if (team.team != enemy_team.team && dist_sq(pos, epos) <= 16.) {
+          hp.hitpoints -= dmg.damage;
+        }
+      });
+    });
     processHeals.each([&](Action &a, Hitpoints &hp)
     {
       if (a.action != EA_HEAL_SELF)
@@ -555,20 +607,42 @@ void process_turn(flecs::world &ecs)
     ecs.entity("approach_map")
       .set(DijkstraMapData{approachMap});
 
+    std::vector<float> visionMap;
+    dmaps::gen_player_vision_map(ecs, visionMap);
+    ecs.entity("vision_map")
+      .set(DijkstraMapData{visionMap});
+
     std::vector<float> fleeMap;
     dmaps::gen_player_flee_map(ecs, fleeMap);
     ecs.entity("flee_map")
       .set(DijkstraMapData{fleeMap});
+
+    std::vector<float> archMap;
+    dmaps::gen_archer_map(ecs, archMap);
+    ecs.entity("archer_map")
+      .set(DijkstraMapData{archMap});
 
     std::vector<float> hiveMap;
     dmaps::gen_hive_pack_map(ecs, hiveMap);
     ecs.entity("hive_map")
       .set(DijkstraMapData{hiveMap});
 
-    //ecs.entity("flee_map").add<VisualiseMap>();
     ecs.entity("hive_follower_sum")
-      .set(DmapWeights{{{"hive_map", {1.f, 1.f}}, {"approach_map", {1.8f, 0.8f}}}})
-      .add<VisualiseMap>();
+      .set(DmapWeights{{{"hive_map", 
+                        [](flecs::entity e, float value) {
+                          bool low_hp = false; 
+                          e.get([&](const Hitpoints hp) {
+                            if (hp.hitpoints < 70.0f) low_hp = true;
+                          });
+                          return value * (low_hp ? 3.0 : 1.0);
+                        }},
+                        {"approach_map", 
+                        [](flecs::entity, float value) {
+                          if (value < 1e5) { return powf(value * 1.8, 0.8); }
+                          return value;
+                        }}}}).add<VisualiseMap>();
+
+    //.add<VisualiseMap>()
   }
 }
 

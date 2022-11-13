@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <functional>
+#include <flecs.h>
 
 // TODO: make a lot of seprate files
 struct Position;
@@ -64,6 +66,7 @@ struct Hitpoints
 enum Actions
 {
   EA_NOP = 0,
+  EA_SHOOT = EA_NOP,
   EA_MOVE_START,
   EA_MOVE_LEFT = EA_MOVE_START,
   EA_MOVE_RIGHT,
@@ -87,6 +90,11 @@ struct NumActions
 };
 
 struct MeleeDamage
+{
+  float damage = 2.f;
+};
+
+struct ShootDamage
 {
   float damage = 2.f;
 };
@@ -159,7 +167,7 @@ struct DmapWeights
     float mult = 1.f;
     float pow = 1.f;
   };
-  std::unordered_map<std::string, WtData> weights;
+  std::unordered_map<std::string, std::function<float(flecs::entity e, float value)>> weights;
 };
 
 struct Hive {};
