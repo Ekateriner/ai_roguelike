@@ -46,3 +46,6 @@ if (hw5)
 endif()
 
 add_subdirectory(w6)
+add_subdirectory(w7)
+add_subdirectory(w8)
+
