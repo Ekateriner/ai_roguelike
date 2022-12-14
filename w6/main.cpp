@@ -35,7 +35,7 @@ int main(int /*argc*/, const char ** /*argv*/)
   flecs::world ecs;
   init_shoot_em_up(ecs);
 
-  Texture2D bgTex = LoadTexture("assets/background.png"); // TODO: move to ecs
+  Texture2D bgTex = LoadTexture("w6/assets/background.png"); // TODO: move to ecs
 
   Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
   camera.target = Vector2{ 0.f, 0.f };

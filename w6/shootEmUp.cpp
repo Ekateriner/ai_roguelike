@@ -83,9 +83,9 @@ void init_shoot_em_up(flecs::world &ecs)
   register_roguelike_systems(ecs);
 
   ecs.entity("swordsman_tex")
-    .set(Texture2D{LoadTexture("assets/swordsman.png")});
+    .set(Texture2D{LoadTexture("w6/assets/swordsman.png")});
   ecs.entity("minotaur_tex")
-    .set(Texture2D{LoadTexture("assets/minotaur.png")});
+    .set(Texture2D{LoadTexture("w6/assets/minotaur.png")});
 
 
   steer::create_seeker(create_monster(ecs, {+400, +400}, WHITE, "minotaur_tex"));
