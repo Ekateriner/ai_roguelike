@@ -136,6 +136,7 @@ static void register_roguelike_systems(flecs::world &ecs)
           }
         }
       });
+      find_path_global(dd, dp, {10, 10}, {20, 20});
     });
   steer::register_systems(ecs);
 }

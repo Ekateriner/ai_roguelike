@@ -1,7 +1,7 @@
 #include "pathfinder.h"
 #include "dungeonUtils.h"
-#include "math.h"
 #include <algorithm>
+#include <iostream>
 
 float heuristic(IVec2 lhs, IVec2 rhs)
 {
@@ -97,12 +97,12 @@ static std::vector<IVec2> find_path_a_star(const DungeonData &dd, IVec2 from, IV
   return std::vector<IVec2>();
 }
 
+constexpr size_t splitTiles = 10;
 
 void prebuild_map(flecs::world &ecs)
 {
   auto mapQuery = ecs.query<const DungeonData>();
 
-  constexpr size_t splitTiles = 10;
   ecs.defer([&]()
   {
     mapQuery.each([&](flecs::entity e, const DungeonData &dd)
@@ -200,7 +200,7 @@ void prebuild_map(flecs::world &ecs)
             // check path from i to j
             // check each position (to find closest dist) (could be made more optimal)
             bool noPath = false;
-            size_t minDist = 0xffffffff;
+            std::vector<IVec2> optimPath {}; 
             for (size_t fromY = std::max(firstPortal.startY, size_t(limMin.y));
                         fromY <= std::min(firstPortal.endY, size_t(limMax.y - 1)) && !noPath; ++fromY)
             {
@@ -221,7 +221,9 @@ void prebuild_map(flecs::world &ecs)
                       noPath = true; // if we found that there's no path at all - we can break out
                       break;
                     }
-                    minDist = std::min(minDist, path.size());
+                    if (optimPath.empty() || path.size() < optimPath.size()) {
+                      optimPath = path;
+                    }
                   }
                 }
               }
@@ -229,8 +231,9 @@ void prebuild_map(flecs::world &ecs)
             // write pathable data and length
             if (noPath)
               continue;
-            firstPortal.conns.push_back({indices[j], float(minDist)});
-            secondPortal.conns.push_back({indices[i], float(minDist)});
+            firstPortal.conns.push_back({indices[j], float(optimPath.size()), optimPath});
+            std::reverse(optimPath.begin(), optimPath.end());
+            secondPortal.conns.push_back({indices[i], float(optimPath.size()), optimPath});
           }
         }
       }
@@ -239,3 +242,189 @@ void prebuild_map(flecs::world &ecs)
   });
 }
 
+static std::vector<IVec2> reconstruct_graph_path(const DungeonPortals& dp, std::vector<size_t> prev, 
+                                                 size_t from_idx, std::vector<std::vector<IVec2>> fromConn,
+                                                 size_t to_idx, std::vector<std::vector<IVec2>> toConn)
+{
+  size_t cur_idx = to_idx;
+  std::vector<IVec2> res{};
+  while (prev[cur_idx] != dp.portals.size() + 2)
+  {
+    size_t prev_idx = prev[cur_idx];
+    if (cur_idx == to_idx) {
+      res.insert(res.begin(), toConn[prev_idx].begin(), toConn[prev_idx].end());
+    }
+    else if (prev_idx == from_idx) {
+      res.insert(res.begin(), fromConn[cur_idx].begin(), fromConn[cur_idx].end());
+    }
+    else {
+      auto& path = dp.portals[prev_idx].conns[cur_idx].path;
+      res.insert(res.begin(), path.begin(), path.end());
+    }
+    cur_idx = prev_idx;
+  }
+  return res;
+}
+
+
+std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals& dp, 
+                                    IVec2 from, IVec2 to)
+{
+  if (from.x < 0 || from.y < 0 || from.x >= int(dd.width) || from.y >= int(dd.height))
+    return std::vector<IVec2>();
+
+  // build graph
+  std::vector<std::pair<float, float>> portalsPos;
+  for (auto& port : dp.portals) {
+    portalsPos.push_back(std::pair(float(port.startX + port.endX)/2., float(port.startY + port.endY)/2.));
+  }
+  portalsPos.push_back({from.x, from.y});
+  portalsPos.push_back({to.x, to.y});
+
+  std::vector<std::vector<float>> edges(portalsPos.size(), std::vector<float>(portalsPos.size(), -1.));
+  for (size_t i = 0; i < dp.portals.size(); i++) {
+    for (auto& conn : dp.portals[i].conns) {
+      edges[i][conn.connIdx] = conn.score;
+    }
+  }
+
+  size_t from_idx = dp.portals.size();
+  size_t to_idx = from_idx + 1;
+
+  //calc near for start and end
+  std::vector<std::vector<IVec2>> fromConn(dp.portals.size());
+  std::vector<std::vector<IVec2>> toConn(dp.portals.size());
+
+  {
+    size_t x = from.x / splitTiles;
+    size_t y = from.y / splitTiles;
+    IVec2 limMin{int((x + 0) * splitTiles), int((y + 0) * splitTiles)};
+    IVec2 limMax{int((x + 1) * splitTiles), int((y + 1) * splitTiles)};
+    for(size_t i = 0; i < dp.portals.size(); i++) {
+      if (std::abs(portalsPos[from_idx].first - portalsPos[i].first) <= splitTiles &&
+          std::abs(portalsPos[from_idx].second - portalsPos[i].second) <= splitTiles) {
+        bool noPath = false;
+        std::vector<IVec2> optimPath{};
+        for (size_t toY = std::max(dp.portals[i].startY, size_t(limMin.y));
+                          toY <= std::min(dp.portals[i].endY, size_t(limMax.y - 1)) && !noPath; ++toY)
+        {
+          for (size_t toX = std::max(dp.portals[i].startX, size_t(limMin.x));
+                      toX <= std::min(dp.portals[i].endX, size_t(limMax.x - 1)) && !noPath; ++toX)
+          {
+            IVec2 from{int(from.x), int(from.y)};
+            IVec2 to{int(toX), int(toY)};
+            std::vector<IVec2> path = find_path_a_star(dd, from, to, limMin, limMax);
+            if (path.empty() && from != to)
+            {
+              noPath = true; // if we found that there's no path at all - we can break out
+              break;
+            }
+            if (optimPath.empty() || path.size() < optimPath.size()) {
+              optimPath = path;
+            }
+          }
+        }
+
+        edges[from_idx][i] = optimPath.size();
+        edges[i][from_idx] = optimPath.size();
+        fromConn[i] = optimPath;
+      }
+    }
+  }
+
+  {
+    size_t x = to.x / splitTiles;
+    size_t y = to.y / splitTiles;
+    IVec2 limMin{int((x + 0) * splitTiles), int((y + 0) * splitTiles)};
+    IVec2 limMax{int((x + 1) * splitTiles), int((y + 1) * splitTiles)};
+    for(size_t i = 0; i < dp.portals.size(); i++) {
+      if (std::abs(portalsPos[to_idx].first - portalsPos[i].first) <= splitTiles &&
+          std::abs(portalsPos[to_idx].second - portalsPos[i].second) <= splitTiles) {
+        bool noPath = false;
+        std::vector<IVec2> optimPath{};
+        for (size_t fromY = std::max(dp.portals[i].startY, size_t(limMin.y));
+                          fromY <= std::min(dp.portals[i].endY, size_t(limMax.y - 1)) && !noPath; ++fromY)
+        {
+          for (size_t fromX = std::max(dp.portals[i].startX, size_t(limMin.x));
+                      fromX <= std::min(dp.portals[i].endX, size_t(limMax.x - 1)) && !noPath; ++fromX)
+          {
+            IVec2 from{int(fromX), int(fromY)};
+            IVec2 to{int(to.x), int(to.y)};
+            std::vector<IVec2> path = find_path_a_star(dd, from, to, limMin, limMax);
+            if (path.empty() && from != to)
+            {
+              noPath = true; // if we found that there's no path at all - we can break out
+              break;
+            }
+            if (optimPath.empty() || path.size() < optimPath.size()) {
+              optimPath = path;
+            }
+          }
+        }
+
+        edges[to_idx][i] = optimPath.size();
+        edges[i][to_idx] = optimPath.size();
+        toConn[i] = optimPath;
+      }
+    }
+  }
+
+  // find path
+  
+  std::vector<float> g(portalsPos.size(), std::numeric_limits<float>::max());
+  std::vector<float> f(portalsPos.size(), std::numeric_limits<float>::max());
+  std::vector<size_t> prev(portalsPos.size(), portalsPos.size());
+
+  auto graph_heuristic = [&](size_t from, size_t to) -> float { 
+    return sqrtf(sqr(portalsPos[from].first - portalsPos[to].first) + 
+                 sqr(portalsPos[from].second - portalsPos[to].second)); 
+  };
+
+  g[from_idx] = 0;
+  f[from_idx] = graph_heuristic(from_idx, to_idx);
+
+  std::vector<size_t> openList = {from_idx};
+  std::vector<size_t> closedList;
+
+  while (!openList.empty())
+  {
+    size_t bestIdx = 0;
+    float bestScore = f[openList[0]];
+    for (size_t i = 1; i < openList.size(); ++i)
+    {
+      float score = f[openList[i]];
+      if (score < bestScore)
+      {
+        bestIdx = i;
+        bestScore = score;
+      }
+    }
+    if (openList[bestIdx] == to_idx)
+      return reconstruct_graph_path(dp, prev, from_idx, fromConn, to_idx, toConn);
+    size_t cur_idx = openList[bestIdx];
+    openList.erase(openList.begin() + bestIdx);
+    if (std::find(closedList.begin(), closedList.end(), cur_idx) != closedList.end())
+      continue;
+    closedList.emplace_back(cur_idx);
+    auto checkNeighbour = [&](size_t idx)
+    {
+      float edgeWeight = 1.f;
+      float gScore = g[cur_idx] + edges[cur_idx][idx]; // we're exactly 1 unit away
+      if (gScore < g[idx])
+      {
+        prev[idx] = cur_idx;
+        g[idx] = gScore;
+        f[idx] = gScore + graph_heuristic(idx, to_idx);
+      }
+      bool found = std::find(openList.begin(), openList.end(), idx) != openList.end();
+      if (!found)
+        openList.emplace_back(idx);
+    };
+    for(size_t j = 0; j < edges[cur_idx].size(); j++) {
+      if (edges[cur_idx][j] != -1)
+        checkNeighbour(j);
+    }
+  }
+  // empty path
+  return std::vector<IVec2>();
+}
