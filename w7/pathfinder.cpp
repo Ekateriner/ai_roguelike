@@ -258,7 +258,7 @@ static std::vector<IVec2> reconstruct_graph_path(const DungeonData &dd, const Du
     else if (prev_idx == from_idx) {
       auto inner_path = find_path_a_star(dd, fromConn[cur_idx].back(), res.front(), 
                                          {dp.portals[cur_idx].startX, dp.portals[cur_idx].startY}, 
-                                         {dp.portals[cur_idx].endX, dp.portals[cur_idx].endY});
+                                         {dp.portals[cur_idx].endX + 1, dp.portals[cur_idx].endY + 1});
       res.insert(res.begin(), inner_path.begin(), inner_path.end());
       res.insert(res.begin(), fromConn[cur_idx].begin(), fromConn[cur_idx].end());
     }
@@ -269,7 +269,7 @@ static std::vector<IVec2> reconstruct_graph_path(const DungeonData &dd, const Du
 
       auto inner_path = find_path_a_star(dd, path.back(), res.front(), 
                                          {dp.portals[cur_idx].startX, dp.portals[cur_idx].startY}, 
-                                         {dp.portals[cur_idx].endX, dp.portals[cur_idx].endY});
+                                         {dp.portals[cur_idx].endX + 1, dp.portals[cur_idx].endY + 1});
       res.insert(res.begin(), inner_path.begin(), inner_path.end());
       res.insert(res.begin(), path.begin(), path.end());
     }
