@@ -44,6 +44,7 @@ int main(int /*argc*/, const char ** /*argv*/)
     char *tiles = new char[dungWidth * dungHeight];
     gen_drunk_dungeon(tiles, dungWidth, dungHeight);
     init_dungeon(ecs, tiles, dungWidth, dungHeight);
+    delete[] tiles;
   }
   init_shoot_em_up(ecs);
 

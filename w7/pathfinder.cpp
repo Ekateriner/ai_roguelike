@@ -242,7 +242,8 @@ void prebuild_map(flecs::world &ecs)
   });
 }
 
-static std::vector<IVec2> reconstruct_graph_path(const DungeonPortals& dp, std::vector<size_t> prev, 
+static std::vector<IVec2> reconstruct_graph_path(const DungeonData &dd, const DungeonPortals& dp, 
+                                                 std::vector<size_t> prev, 
                                                  size_t from_idx, std::vector<std::vector<IVec2>> fromConn,
                                                  size_t to_idx, std::vector<std::vector<IVec2>> toConn)
 {
@@ -255,10 +256,21 @@ static std::vector<IVec2> reconstruct_graph_path(const DungeonPortals& dp, std::
       res.insert(res.begin(), toConn[prev_idx].begin(), toConn[prev_idx].end());
     }
     else if (prev_idx == from_idx) {
+      auto inner_path = find_path_a_star(dd, fromConn[cur_idx].back(), res.front(), 
+                                         {dp.portals[cur_idx].startX, dp.portals[cur_idx].startY}, 
+                                         {dp.portals[cur_idx].endX, dp.portals[cur_idx].endY});
+      res.insert(res.begin(), inner_path.begin(), inner_path.end());
       res.insert(res.begin(), fromConn[cur_idx].begin(), fromConn[cur_idx].end());
     }
     else {
-      auto& path = dp.portals[prev_idx].conns[cur_idx].path;
+      auto& all_conns = dp.portals[prev_idx].conns;
+      auto& path = (*std::find_if(all_conns.begin(), all_conns.end(), 
+                                  [&](auto& conn) { return conn.connIdx == cur_idx; })).path;
+
+      auto inner_path = find_path_a_star(dd, path.back(), res.front(), 
+                                         {dp.portals[cur_idx].startX, dp.portals[cur_idx].startY}, 
+                                         {dp.portals[cur_idx].endX, dp.portals[cur_idx].endY});
+      res.insert(res.begin(), inner_path.begin(), inner_path.end());
       res.insert(res.begin(), path.begin(), path.end());
     }
     cur_idx = prev_idx;
@@ -266,13 +278,22 @@ static std::vector<IVec2> reconstruct_graph_path(const DungeonPortals& dp, std::
   return res;
 }
 
+bool check(std::vector<std::vector<float>>& edges) {
+  for (auto from_vert : edges) {
+    for (auto path : from_vert) {
+      std::cout << path << " ";
+    }
+    std::cout << "\n";
+  }
+  return true;
+}
 
 std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals& dp, 
                                     IVec2 from, IVec2 to)
 {
   if (from.x < 0 || from.y < 0 || from.x >= int(dd.width) || from.y >= int(dd.height))
     return std::vector<IVec2>();
-
+    
   // build graph
   std::vector<std::pair<float, float>> portalsPos;
   for (auto& port : dp.portals) {
@@ -311,10 +332,9 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
           for (size_t toX = std::max(dp.portals[i].startX, size_t(limMin.x));
                       toX <= std::min(dp.portals[i].endX, size_t(limMax.x - 1)) && !noPath; ++toX)
           {
-            IVec2 from{int(from.x), int(from.y)};
-            IVec2 to{int(toX), int(toY)};
-            std::vector<IVec2> path = find_path_a_star(dd, from, to, limMin, limMax);
-            if (path.empty() && from != to)
+            IVec2 end{int(toX), int(toY)};
+            std::vector<IVec2> path = find_path_a_star(dd, from, end, limMin, limMax);
+            if (path.empty() && from != end)
             {
               noPath = true; // if we found that there's no path at all - we can break out
               break;
@@ -325,8 +345,9 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
           }
         }
 
-        edges[from_idx][i] = optimPath.size();
-        edges[i][from_idx] = optimPath.size();
+        if (!optimPath.empty()) {
+          edges[from_idx][i] = optimPath.size();
+        }
         fromConn[i] = optimPath;
       }
     }
@@ -348,10 +369,10 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
           for (size_t fromX = std::max(dp.portals[i].startX, size_t(limMin.x));
                       fromX <= std::min(dp.portals[i].endX, size_t(limMax.x - 1)) && !noPath; ++fromX)
           {
-            IVec2 from{int(fromX), int(fromY)};
-            IVec2 to{int(to.x), int(to.y)};
-            std::vector<IVec2> path = find_path_a_star(dd, from, to, limMin, limMax);
-            if (path.empty() && from != to)
+            IVec2 start{int(fromX), int(fromY)};
+            std::vector<IVec2> path = find_path_a_star(dd, start, to, limMin, limMax);
+            
+            if (path.empty() && start != to)
             {
               noPath = true; // if we found that there's no path at all - we can break out
               break;
@@ -362,12 +383,29 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
           }
         }
 
-        edges[to_idx][i] = optimPath.size();
-        edges[i][to_idx] = optimPath.size();
+        if (!optimPath.empty()) {
+          edges[i][to_idx] = optimPath.size();
+        }
         toConn[i] = optimPath;
       }
     }
   }
+
+  // static bool checked = check(edges);
+
+  auto get_path = [&](size_t start_idx, size_t end_idx) {
+    if (end_idx == to_idx) {
+      return toConn[start_idx];
+    }
+    else if (start_idx == from_idx) {
+      return fromConn[end_idx];
+    }
+    else {
+      auto& all_conns = dp.portals[start_idx].conns;
+      return (*std::find_if(all_conns.begin(), all_conns.end(), 
+                           [&](auto& conn) { return conn.connIdx == end_idx; })).path;
+    }
+  };
 
   // find path
   
@@ -383,42 +421,48 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
   g[from_idx] = 0;
   f[from_idx] = graph_heuristic(from_idx, to_idx);
 
-  std::vector<size_t> openList = {from_idx};
+  std::vector<std::pair<size_t, IVec2>> openList = {{from_idx, from}};
   std::vector<size_t> closedList;
 
   while (!openList.empty())
   {
     size_t bestIdx = 0;
-    float bestScore = f[openList[0]];
+    float bestScore = f[openList[0].first];
     for (size_t i = 1; i < openList.size(); ++i)
     {
-      float score = f[openList[i]];
+      float score = f[openList[i].first];
       if (score < bestScore)
       {
         bestIdx = i;
         bestScore = score;
       }
     }
-    if (openList[bestIdx] == to_idx)
-      return reconstruct_graph_path(dp, prev, from_idx, fromConn, to_idx, toConn);
-    size_t cur_idx = openList[bestIdx];
+    if (openList[bestIdx].first == to_idx)
+      return reconstruct_graph_path(dd, dp, prev, from_idx, fromConn, to_idx, toConn);
+    size_t cur_idx = openList[bestIdx].first;
+    IVec2 cur_pos = openList[bestIdx].second;
     openList.erase(openList.begin() + bestIdx);
     if (std::find(closedList.begin(), closedList.end(), cur_idx) != closedList.end())
       continue;
     closedList.emplace_back(cur_idx);
     auto checkNeighbour = [&](size_t idx)
     {
-      float edgeWeight = 1.f;
-      float gScore = g[cur_idx] + edges[cur_idx][idx]; // we're exactly 1 unit away
-      if (gScore < g[idx])
+      auto path = get_path(cur_idx, idx);
+      float edgeWeight = 0.f;
+      if (cur_idx < dp.portals.size()) {
+        edgeWeight = std::abs(path.front().x - cur_pos.x) + std::abs(path.front().y - cur_pos.y);  // in portal movement
+      }
+      float gScore = g[cur_idx] + edges[cur_idx][idx] + edgeWeight;
+      bool better = gScore < g[idx];
+      if (better)
       {
         prev[idx] = cur_idx;
         g[idx] = gScore;
         f[idx] = gScore + graph_heuristic(idx, to_idx);
       }
-      bool found = std::find(openList.begin(), openList.end(), idx) != openList.end();
-      if (!found)
-        openList.emplace_back(idx);
+      bool found = std::find_if(openList.begin(), openList.end(), [&](auto val) {return val.first == idx; }) != openList.end();
+      if (!found || better)
+        openList.emplace_back(idx, path.back());
     };
     for(size_t j = 0; j < edges[cur_idx].size(); j++) {
       if (edges[cur_idx][j] != -1)

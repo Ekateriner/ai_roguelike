@@ -6,13 +6,38 @@
 #include "dungeonGen.h"
 #include "dungeonUtils.h"
 #include "pathfinder.h"
+#include <iostream>
 
 constexpr float tile_size = 64.f;
+
+static IVec2 find_walkable_tile(flecs::world &ecs)
+{
+  static auto dangQuery = ecs.query<const DungeonData>();
+  
+  std::vector<IVec2> posList;
+  dangQuery.each([&](const DungeonData& dd) {
+    for (size_t y = 0; y < dd.height; ++y)
+      for (size_t x = 0; x < dd.width; ++x)
+        if (dd.tiles[y * dd.width + x] == dungeon::floor)
+          posList.push_back(IVec2{int(x), int(y)});
+  });
+  
+  // prebuild all walkable and get one of them
+  size_t rndIdx = size_t(GetRandomValue(0, int(posList.size()) - 1));
+  return posList[rndIdx];
+}
+
+static void draw_path(std::vector<IVec2> path)
+{
+  for (size_t i = 1; i < path.size(); i++)
+    DrawLineEx(Vector2{path[i-1].x * tile_size + tile_size / 2.f, path[i-1].y * tile_size + tile_size / 2.f}, 
+               Vector2{path[i].x * tile_size + tile_size / 2.f, path[i].y * tile_size + tile_size / 2.f}, 1.f, GREEN);
+    //DrawPixel(p.x, p.y, GetColor(0x44000088));
+}
 
 static void register_roguelike_systems(flecs::world &ecs)
 {
   static auto playerPosQuery = ecs.query<const Position, const IsPlayer>();
-
   ecs.system<Velocity, const MoveSpeed, const IsPlayer>()
     .each([&](Velocity &vel, const MoveSpeed &ms, const IsPlayer)
     {
@@ -78,6 +103,9 @@ static void register_roguelike_systems(flecs::world &ecs)
       });
     });
 
+  static IVec2 from = find_walkable_tile(ecs);
+  static IVec2 to = find_walkable_tile(ecs);
+
   static auto cameraQuery = ecs.query<const Camera2D>();
   ecs.system<const DungeonPortals, const DungeonData>()
     .each([&](const DungeonPortals &dp, const DungeonData &dd)
@@ -135,8 +163,19 @@ static void register_roguelike_systems(flecs::world &ecs)
                      16, WHITE);
           }
         }
+        //process click
+        if (IsMouseButtonPressed(0))
+        {
+          from = {int(mousePosition.x / tile_size), int(mousePosition.y / tile_size)};
+          std::cout << "change from = (" << from.x << ", " << from.y << ")\n";
+        }
+        else if (IsMouseButtonPressed(1))
+        {
+          to = {int(mousePosition.x / tile_size), int(mousePosition.y / tile_size)};
+          std::cout << "change to = (" << to.x << ", " << to.y << ")\n";
+        }
+        draw_path(find_path_global(dd, dp, from, to));
       });
-      find_path_global(dd, dp, {10, 10}, {20, 20});
     });
   steer::register_systems(ecs);
 }
