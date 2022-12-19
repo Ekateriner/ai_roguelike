@@ -293,6 +293,23 @@ std::vector<IVec2> find_path_global(const DungeonData &dd, const DungeonPortals&
 {
   if (from.x < 0 || from.y < 0 || from.x >= int(dd.width) || from.y >= int(dd.height))
     return std::vector<IVec2>();
+
+  // in one tile
+  {
+    size_t fx = from.x / splitTiles;
+    size_t fy = from.y / splitTiles;
+
+    size_t tx = to.x / splitTiles;
+    size_t ty = to.y / splitTiles;
+
+    if ((fx == tx) && (fy == ty)) {
+      IVec2 limMin{int((fx + 0) * splitTiles), int((fy + 0) * splitTiles)};
+      IVec2 limMax{int((fx + 1) * splitTiles), int((fy + 1) * splitTiles)};
+      auto path = find_path_a_star(dd, from, to, limMin, limMax);
+      if (!path.empty() || from == to) 
+        return path;
+    }
+  }
     
   // build graph
   std::vector<std::pair<float, float>> portalsPos;
